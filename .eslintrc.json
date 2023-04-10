@@ -2,13 +2,14 @@
     "root": true,
     "parser": "@typescript-eslint/parser",
     "parserOptions": {
-        "ecmaVersion": 6,
+        "ecmaVersion": "latest",
         "sourceType": "module"
     },
     "plugins": [
         "@typescript-eslint"
     ],
     "rules": {
+        "no-trailing-spaces": "warn",
         "@typescript-eslint/naming-convention": "warn",
         "@typescript-eslint/semi": "warn",
         "curly": "warn",

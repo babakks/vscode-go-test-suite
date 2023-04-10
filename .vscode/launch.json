@@ -29,6 +29,16 @@
 				"${workspaceFolder}/out/test/**/*.js"
 			],
 			"preLaunchTask": "${defaultBuildTask}"
-		}
+		},
+        {
+            "name": "Mocha tests (local)",
+            "type": "node",
+            "request": "launch",
+            "args": [
+                "node_modules/mocha/bin/mocha.js",
+                "./out/test/local/*.test.js",
+            ],
+            "preLaunchTask": "npm: compile"
+        }
 	]
 }

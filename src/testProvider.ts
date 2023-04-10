@@ -1,0 +1,490 @@
+import { spawn } from 'child_process';
+import { randomUUID } from 'crypto';
+import { basename, dirname, posix } from 'path';
+import { TextDecoder } from 'util';
+import * as vscode from 'vscode';
+import { ExtensionAPI as GoExtensionAPI } from './go';
+import { GoParser, TestFunction } from './goParser';
+import assert = require('assert');
+import { filterChildren, firstChild, traceChildren, tryReadFileSync } from './util';
+import { readFileSync } from 'fs';
+import path = require('path');
+
+export interface TestLibraryAdapter {
+    discoverTestFunctions(content: string, path: string): TestFunction[];
+    getRunCommand(data: TestFunction, path: string): { command?: string; args?: string[] };
+    getDebugCommand(data: TestFunction, path: string): { program?: string; args?: string[] };
+}
+
+type TestData = TestFunction | 'file' | 'package';
+
+const _FAILED_TO_RETRIEVE_GO_EXECUTION_PARAMS_ERROR_MESSAGE = 'error: cannot retrieve `go` execution command from Go extension';
+
+/**
+ * Provides Go tests for supported test libraries.
+ *
+ * The test *Entries* (i.e., `vscode.TestItem` instances) are structured in this way:
+ *
+ * - Package (e.g., `my_package`)
+ *   - File (e.g., `normal_test.go`)
+ *     - Function (e.g., `TestSomething`)
+ */
+export class TestProvider implements vscode.Disposable {
+    // private readonly testItemByUri = new Map<string, vscode.TestItem>();
+    // private readonly testDataByTestItem = new WeakMap<vscode.TestItem, TestData>();
+    // private readonly testItemByTestData = new WeakMap<TestData, vscode.TestItem>();
+    // private readonly packages = new WeakMap<TestPackageData, vscode.TestItem>();
+    // private readonly packagesById = new Map<string, TestPackageData>();
+
+    private readonly _runProfile: vscode.TestRunProfile;
+    private readonly _debugProfile: vscode.TestRunProfile;
+
+    private readonly _disposables: vscode.Disposable[] = [];
+    private readonly _go: GoExtensionAPI;
+
+    private readonly _map = new WeakMap<vscode.TestItem, TestData>();
+
+    constructor(
+        public readonly controller: vscode.TestController,
+        public readonly output: vscode.OutputChannel,
+        public readonly adapter: TestLibraryAdapter,
+        public readonly logUri: vscode.Uri,
+    ) {
+        this._go = this._getGoExtension().exports;
+
+        // First, create the `resolveHandler`. This may initially be called with
+        // "undefined" to ask for all tests in the workspace to be discovered, usually
+        // when the user opens the Test Explorer for the first time.
+        this.controller.resolveHandler = async test => {
+            if (!test) {
+                await this._discoverAllTests();
+                return;
+            }
+
+            const data = this._map.get(test);
+            if (!data) {
+                return;
+            }
+
+            if (data === 'package') {
+                await this._refreshPackageEntry(test);
+            } else if (data === 'file') {
+                await this._refreshFileEntry(test);
+            } else {
+                assert(test.uri);
+                await this._discoverTestsInFile(test.uri);
+            }
+        };
+
+        this._disposables.push(
+            // When text documents are open, parse tests in them.
+            vscode.workspace.onDidOpenTextDocument(e => this._discoverTestsInFile(e.uri, e.getText())),
+            // // We could also listen to document changes to re-parse unsaved changes:
+            // vscode.workspace.onDidChangeTextDocument(e => this.parseTestsInDocument(e.document)),
+            this._runProfile = controller.createRunProfile('Run', vscode.TestRunProfileKind.Run, (request, token) => this._startTestRun(false, request, token)),
+            this._debugProfile = controller.createRunProfile('Debug', vscode.TestRunProfileKind.Debug, (request, token) => this._startTestRun(true, request, token))
+        );
+    }
+
+    dispose() {
+        this._disposables.forEach(x => x.dispose);
+    }
+
+    private _getGoExtension() {
+        const result = vscode.extensions.getExtension<GoExtensionAPI>('golang.go');
+        if (!result || !result.isActive) {
+            throw new Error('Go extension should be present and activated');
+        }
+        return result;
+    }
+
+    private _findFileEntry(uri: vscode.Uri): vscode.TestItem | undefined {
+        return firstChild(this.controller.items, (x: vscode.TestItem) => x.uri?.path === uri.path && this._map.get(x) === 'file');
+    }
+
+    private _findFileEntriesWithNoChildren(): vscode.TestItem[] {
+        return filterChildren(this.controller.items, (x: vscode.TestItem) => this._map.get(x) === 'file' && !x.children.size);
+    }
+
+    private _findPackageEntriesWithNoChildren(): vscode.TestItem[] {
+        return filterChildren(this.controller.items, (x: vscode.TestItem) => this._map.get(x) === 'package' && !x.children.size);
+    }
+
+    private _purgeEntriesWithNoChildren() {
+        for (const x of this._findFileEntriesWithNoChildren()) {
+            assert(x.parent);
+            this._map.delete(x);
+            x.parent.children.delete(x.id);
+        }
+
+        for (const x of this._findPackageEntriesWithNoChildren()) {
+            this._map.delete(x);
+            this.controller.items.delete(x.id);
+        }
+    }
+
+    private async _refreshPackageEntry(test: vscode.TestItem) {
+        assert(test.uri);
+        traceChildren(test).forEach(x => this._map.delete(x));
+        test.children.replace([]);
+        const files = await vscode.workspace.fs.readDirectory(test.uri);
+        for (const [filename, fileType] of files) {
+            if (fileType !== vscode.FileType.File) {
+                continue;
+            }
+            await this._discoverTestsInFile(vscode.Uri.joinPath(test.uri, filename));
+        }
+    }
+
+    private async _refreshFileEntry(test: vscode.TestItem) {
+        assert(test.uri);
+        test.children.forEach(x => this._map.delete(x));
+        test.children.replace([]);
+        await this._discoverTestsInFile(test.uri);
+    }
+
+    private async _discoverTestsInFile(uri: vscode.Uri, content?: string) {
+        if (uri.scheme !== 'file' || !uri.path.endsWith('_test.go')) {
+            return;
+        }
+
+        if (uri.path.split(path.sep).includes('testdata')) {
+            /**
+             * As per `go help test` docs:
+             * > The go tool will ignore a directory named "testdata", making it available to hold ancillary data needed by the tests.
+             */
+            return;
+        }
+
+        const filename = basename(uri.path);
+        if (filename.startsWith('.') || filename.startsWith('_')) {
+            /**
+             * As per `go help test` docs:
+             * > Files whose names begin with "_" (including "_test.go") or "." are ignored.
+             */
+            return;
+        }
+
+        content ??= new TextDecoder().decode(await vscode.workspace.fs.readFile(uri));
+
+        const packageName = new GoParser(content).parsePackageName()?.name;
+        if (!packageName) {
+            return;
+        }
+
+        const discovered = this.adapter.discoverTestFunctions(content, uri.path);
+        if (!discovered.length) {
+            return;
+        }
+
+        const directory = uri.with({ path: dirname(uri.path) });
+        const packageId = `${directory.path}:${packageName}`;
+        let packageItem = this.controller.items.get(packageId);
+        if (!packageItem) {
+            const directoryAsRelative = vscode.workspace.asRelativePath(directory.fsPath + '/.');
+            const label = `${directoryAsRelative}${directoryAsRelative ? '/' : ''}${packageName}`;
+            packageItem = this.controller.createTestItem(packageId, label, directory);
+            this.controller.items.add(packageItem);
+            this._map.set(packageItem, 'package');
+        }
+
+        const filenameWithoutExtension = filename.split('.').slice(0, -1).join('.');
+        const fileId = filenameWithoutExtension;
+        let fileItem = packageItem.children.get(fileId);
+        if (!fileItem) {
+            fileItem = this.controller.createTestItem(fileId, filename, uri);
+            packageItem.children.add(fileItem);
+            this._map.set(fileItem, 'file');
+        }
+
+        for (const t of discovered) {
+            const id = t.receiverType ? `${t.receiverType}.${t.functionName}` : t.functionName;
+            const item = this.controller.createTestItem(id, id, uri);
+            item.range = new vscode.Range(...t.range);
+            fileItem.children.add(item);
+            this._map.set(item, t);
+        }
+    }
+
+    private async _discoverAllTests(token?: vscode.CancellationToken) {
+        if (token?.isCancellationRequested) {
+            return [];
+        }
+
+        this.controller.items.replace([]);
+
+        if (!vscode.workspace.workspaceFolders) {
+            return []; // handle the case of no open folders
+        }
+
+        const cancelPromise = token ? this._getCancellationTokenPromise(token) : undefined;
+        const promises = vscode.workspace.workspaceFolders.map(async workspaceFolder => {
+            const pattern = new vscode.RelativePattern(workspaceFolder, '**/*_test.go');
+            const watcher = vscode.workspace.createFileSystemWatcher(pattern);
+            this._disposables.push(
+                watcher,
+                // When files are created, make sure there's a corresponding "file" node in the tree
+                watcher.onDidCreate(async uri => { await this._discoverTestsInFile(uri); }),
+                // When files change, re-parse them. Note that you could optimize this so
+                // that you only re-parse children that have been resolved in the past.
+                watcher.onDidChange(async uri => {
+                    const test = this._findFileEntry(uri);
+                    if (!test) {
+                        await this._discoverTestsInFile(uri);
+                    } else {
+                        await this._refreshFileEntry(test);
+                    }
+                    this._purgeEntriesWithNoChildren();
+                }),
+                // And, finally, delete TestItems for removed files. This is simple, since
+                // we use the URI as the TestItem's ID.
+                watcher.onDidDelete(uri => {
+                    const test = this._findFileEntry(uri);
+                    if (!test) {
+                        return;
+                    }
+                    test.parent?.children.delete(test.id);
+                    this._map.delete(test);
+                    this._purgeEntriesWithNoChildren();
+                }),
+            );
+
+            const allFiles = vscode.workspace.findFiles(pattern);
+            const race = await Promise.race([allFiles, ...(cancelPromise ? [cancelPromise] : [])]);
+            if (!race) {
+                return watcher;
+            }
+
+            for (const file of race) {
+                if (token?.isCancellationRequested) {
+                    break;
+                }
+                this._discoverTestsInFile(file);
+            }
+            return watcher;
+        });
+        return Promise.all(promises);
+    }
+
+    private _getCancellationTokenPromise(token: vscode.CancellationToken) {
+        return new Promise<void>(resolve => {
+            if (token.isCancellationRequested) {
+                resolve();
+            }
+            const listener = token.onCancellationRequested(e => {
+                listener.dispose();
+                resolve();
+            });
+            this._disposables.push(listener);
+        });
+    }
+
+    private async _startTestRun(isDebug: boolean, request: vscode.TestRunRequest, token: vscode.CancellationToken) {
+        const queue: { test: vscode.TestItem; data: TestFunction }[] = [];
+        const run = this.controller.createTestRun(request);
+
+        function gatherTestItems(collection: vscode.TestItemCollection) {
+            const items: vscode.TestItem[] = [];
+            collection.forEach(item => items.push(item));
+            return items;
+        }
+
+        const discoverTests = async (tests: Iterable<vscode.TestItem>) => {
+            for (const test of tests) {
+                if (request.exclude?.includes(test)) {
+                    continue;
+                }
+
+                const data = this._map.get(test);
+                if (!data) {
+                    continue;
+                }
+
+                if (data === 'file' || data === 'package') {
+                    await discoverTests(gatherTestItems(test.children));
+                } else {
+                    run.enqueued(test);
+                    queue.push({ test, data });
+                }
+            }
+        };
+
+        const runTestQueue = async () => {
+            for (const { test, data } of queue) {
+                if (run.token.isCancellationRequested) {
+                    run.skipped(test);
+                    run.appendOutput(`Skipped ${test.id}\r\n`);
+                } else {
+                    run.started(test);
+                    run.appendOutput(`Running ${test.id}\r\n`);
+                    if (isDebug) {
+                        await this._debug(run, test, data, token);
+                    } else {
+                        await this._run(run, test, data, token);
+                    }
+                    run.appendOutput(`Completed ${test.id}\r\n`);
+                }
+            }
+
+            run.end();
+        };
+
+        await discoverTests(request.include ?? gatherTestItems(this.controller.items));
+        if (!queue.length) {
+            vscode.window.showErrorMessage("No tests to run");
+            run.end();
+            return;
+        } else if (isDebug && queue.length > 1) {
+            vscode.window.showErrorMessage("The extension does not support debugging multiple tests");
+            run.end();
+            return;
+        }
+        await runTestQueue();
+    };
+
+    private async _run(run: vscode.TestRun, test: vscode.TestItem, data: TestFunction, token: vscode.CancellationToken) {
+        assert(test.uri);
+
+        const execution = this._go.settings.getExecutionCommand('go');
+        if (!execution) {
+            run.appendOutput(_FAILED_TO_RETRIEVE_GO_EXECUTION_PARAMS_ERROR_MESSAGE);
+            return;
+        }
+
+        const cmd = this.adapter.getRunCommand(data, test.uri?.path);
+        const command = cmd.command || execution.binPath;
+        const args = cmd.args || ['test'];
+
+        type ProcessResult = { code: number | null; stdout: string; stderr: string; };
+        test.busy = true;
+        const result = await new Promise<ProcessResult>(resolve => {
+            assert(test.uri);
+            const cp = spawn(command, args, {
+                cwd: vscode.workspace.getWorkspaceFolder(test.uri)?.uri.fsPath,
+                env: execution.env as NodeJS.ProcessEnv || undefined,
+            });
+            const result: ProcessResult = {
+                code: 0,
+                stdout: '',
+                stderr: '',
+            };
+            cp.stdout.on('data', (data) => {
+                result.stdout += data.toString();
+            });
+            cp.stderr.on('data', (data) => {
+                result.stderr += data.toString();
+            });
+            cp.on('close', (code) => {
+                result.code = code;
+                resolve(result);
+            });
+        });
+        test.busy = false;
+        const start = Date.now();
+        if (result.code === 0) {
+            if (result.stdout) {
+                run.appendOutput(result.stdout);
+            }
+            run.passed(test, Date.now() - start);
+        } else {
+            run.appendOutput(`test failed (exit code: ${result.code}): ${test.id}`);
+            if (result.stdout) {
+                run.appendOutput(result.stdout);
+            }
+            if (result.stderr) {
+                run.appendOutput(result.stderr);
+            }
+            run.failed(test, new vscode.TestMessage(`${result.stdout}\r\n${result.stderr}`), Date.now() - start);
+        }
+    }
+
+    private async _debug(run: vscode.TestRun, test: vscode.TestItem, data: TestFunction, token: vscode.CancellationToken) {
+        assert(test.uri);
+
+        const execution = this._go.settings.getExecutionCommand('go');
+        if (!execution) {
+            run.appendOutput(_FAILED_TO_RETRIEVE_GO_EXECUTION_PARAMS_ERROR_MESSAGE);
+            return;
+        }
+        const cwd = vscode.workspace.getWorkspaceFolder(test.uri)?.uri.path;
+
+        const cmd = this.adapter.getDebugCommand(data, test.uri.path);
+        const program = cmd.program || cwd;
+        const args = cmd.args || ['test'];
+
+        const goCheckSessionIDKey = 'goTestSessionID' as const;
+        const sessionId = randomUUID();
+        let sessionStartSignal: (value: vscode.DebugSession) => void;
+        const sessionStartPromise = new Promise<vscode.DebugSession>(resolve => { sessionStartSignal = resolve; });
+        const listener = vscode.debug.onDidStartDebugSession(e => {
+            if (e.configuration[goCheckSessionIDKey] === sessionId) {
+                sessionStartSignal(e);
+                listener.dispose();
+            }
+        });
+        this._disposables.push(listener);
+
+        const logFile = this._getLogFilePath(sessionId);
+        const started = await vscode.debug.startDebugging(
+            vscode.workspace.getWorkspaceFolder(test.uri),
+            {
+                [goCheckSessionIDKey]: sessionId,
+                type: 'go',
+                request: 'launch',
+                mode: 'test',
+                name: `Debug test ${test.id}`,
+                cwd: cwd,
+                env: execution?.env,
+                program,
+                args,
+                showLog: true,
+                logDest: logFile.fsPath,
+            },
+        );
+
+        if (!started) {
+            run.appendOutput('error: debug session did not start');
+            return;
+        }
+
+        const start = Date.now();
+        const listener2 = vscode.debug.onDidTerminateDebugSession(e => {
+            if (e.configuration[goCheckSessionIDKey] === sessionId) {
+                const output = tryReadFileSync(logFile.fsPath);
+                if (output) {
+                    run.appendOutput(output);
+                }
+                run.skipped(test);
+                listener2.dispose();
+            }
+        });
+        this._disposables.push(listener2);
+
+        const session = await sessionStartPromise;
+        const cancelListener = token.onCancellationRequested(e => {
+            vscode.debug.stopDebugging(session);
+            cancelListener.dispose();
+        });
+        this._disposables.push(cancelListener);
+    }
+
+    private _getLogFilePath(name: string): vscode.Uri {
+        return vscode.Uri.joinPath(this.logUri, name);
+    }
+}
+
+export class GocheckTestLibraryAdapter implements TestLibraryAdapter {
+    discoverTestFunctions(content: string, path: string): TestFunction[] {
+        return new GoParser(content).parse()?.testFunctions.filter(x => x.kind === 'gocheck') || [];
+    }
+
+    getRunCommand(data: TestFunction, path: string): { command?: string | undefined; args?: string[] | undefined; } {
+        assert(data.receiverType);
+        return { args: ['test', '-check.f', `${data.receiverType}.${data.functionName}`] };
+    }
+
+    getDebugCommand(data: TestFunction, path: string): { program?: string | undefined; args?: string[] | undefined; } {
+        assert(data.receiverType);
+        return { args: ['-check.f', `${data.receiverType}.${data.functionName}`] };
+    }
+}
