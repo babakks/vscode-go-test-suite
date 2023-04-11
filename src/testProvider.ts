@@ -313,16 +313,16 @@ export class TestProvider implements vscode.Disposable {
             for (const { test, data } of queue) {
                 if (run.token.isCancellationRequested) {
                     run.skipped(test);
-                    run.appendOutput(`Skipped ${test.id}\r\n`);
+                    this._log(`Skipped ${test.id}\r\n`, run);
                 } else {
                     run.started(test);
-                    run.appendOutput(`Running ${test.id}\r\n`);
+                    this._log(`Running ${test.id}\r\n`, run);
                     if (isDebug) {
                         await this._debug(run, test, data, token);
                     } else {
                         await this._run(run, test, data, token);
                     }
-                    run.appendOutput(`Completed ${test.id}\r\n`);
+                    this._log(`Completed ${test.id}\r\n`, run);
                 }
             }
 
@@ -347,11 +347,13 @@ export class TestProvider implements vscode.Disposable {
 
         const execution = this._go.settings.getExecutionCommand('go');
         if (!execution) {
-            run.appendOutput(_FAILED_TO_RETRIEVE_GO_EXECUTION_PARAMS_ERROR_MESSAGE);
+            this._log(_FAILED_TO_RETRIEVE_GO_EXECUTION_PARAMS_ERROR_MESSAGE, run);
+            run.skipped(test);
             return;
         }
 
         const cmd = this.adapter.getRunCommand(data, test.uri?.path);
+        const testDirectory = dirname(test.uri.path);
         const command = cmd.command || execution.binPath;
         const args = cmd.args || ['test'];
 
@@ -360,7 +362,7 @@ export class TestProvider implements vscode.Disposable {
         const result = await new Promise<ProcessResult>(resolve => {
             assert(test.uri);
             const cp = spawn(command, args, {
-                cwd: vscode.workspace.getWorkspaceFolder(test.uri)?.uri.fsPath,
+                cwd: testDirectory,
                 env: execution.env as NodeJS.ProcessEnv || undefined,
             });
             const result: ProcessResult = {
@@ -383,16 +385,16 @@ export class TestProvider implements vscode.Disposable {
         const start = Date.now();
         if (result.code === 0) {
             if (result.stdout) {
-                run.appendOutput(result.stdout);
+                this._log(result.stdout, run);
             }
             run.passed(test, Date.now() - start);
         } else {
-            run.appendOutput(`test failed (exit code: ${result.code}): ${test.id}`);
+            this._log(`test failed (exit code: ${result.code}): ${test.id}`, run);
             if (result.stdout) {
-                run.appendOutput(result.stdout);
+                this._log(result.stdout, run);
             }
             if (result.stderr) {
-                run.appendOutput(result.stderr);
+                this._log(result.stderr, run);
             }
             run.failed(test, new vscode.TestMessage(`${result.stdout}\r\n${result.stderr}`), Date.now() - start);
         }
@@ -403,14 +405,15 @@ export class TestProvider implements vscode.Disposable {
 
         const execution = this._go.settings.getExecutionCommand('go');
         if (!execution) {
-            run.appendOutput(_FAILED_TO_RETRIEVE_GO_EXECUTION_PARAMS_ERROR_MESSAGE);
+            this._log(_FAILED_TO_RETRIEVE_GO_EXECUTION_PARAMS_ERROR_MESSAGE, run);
+            run.skipped(test);
             return;
         }
-        const cwd = vscode.workspace.getWorkspaceFolder(test.uri)?.uri.path;
 
+        const testDirectory = dirname(test.uri.path);
         const cmd = this.adapter.getDebugCommand(data, test.uri.path);
-        const program = cmd.program || cwd;
-        const args = cmd.args || ['test'];
+        const program = cmd.program || testDirectory;
+        const args = cmd.args || [];
 
         const goCheckSessionIDKey = 'goTestSessionID' as const;
         const sessionId = randomUUID();
@@ -433,7 +436,7 @@ export class TestProvider implements vscode.Disposable {
                 request: 'launch',
                 mode: 'test',
                 name: `Debug test ${test.id}`,
-                cwd: cwd,
+                cwd: testDirectory,
                 env: execution?.env,
                 program,
                 args,
@@ -443,19 +446,23 @@ export class TestProvider implements vscode.Disposable {
         );
 
         if (!started) {
-            run.appendOutput('error: debug session did not start');
+            this._log('error: debug session did not start', run);
+            run.skipped(test);
             return;
         }
 
-        const start = Date.now();
+        let sessionStopSignal: () => void;
+        const sessionStopPromise = new Promise<void>(resolve => { sessionStopSignal = resolve; });
+
         const listener2 = vscode.debug.onDidTerminateDebugSession(e => {
             if (e.configuration[goCheckSessionIDKey] === sessionId) {
                 const output = tryReadFileSync(logFile.fsPath);
                 if (output) {
-                    run.appendOutput(output);
+                    this._log(output, run);
                 }
                 run.skipped(test);
                 listener2.dispose();
+                sessionStopSignal();
             }
         });
         this._disposables.push(listener2);
@@ -466,10 +473,16 @@ export class TestProvider implements vscode.Disposable {
             cancelListener.dispose();
         });
         this._disposables.push(cancelListener);
+        await sessionStopPromise;
     }
 
     private _getLogFilePath(name: string): vscode.Uri {
         return vscode.Uri.joinPath(this.logUri, name);
+    }
+
+    private _log(message: string, run?: vscode.TestRun) {
+        this.output.appendLine(message);
+        run?.appendOutput(message);
     }
 }
 
