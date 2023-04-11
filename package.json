@@ -1,29 +1,39 @@
 {
-    "name": "vscode-go-check-test-suite",
-    "displayName": "Go Check Test Suite Explorer",
-    "description": "Explore Check test suites for Go",
+    "name": "vscode-go-test-suite",
+    "displayName": "Go Test Suite Support",
+    "description": "Click and run Go test functions written in third-party library formats",
     "version": "0.0.1",
+    "publisher": "babakks",
+    "repository": {
+        "type": "git",
+        "url": "https://github.com/babakks/vscode-go-test-suite"
+    },
     "engines": {
-        "vscode": "^1.76.0"
+        "vscode": "^1.72.0"
     },
     "categories": [
-        "Other"
+        "Testing"
+    ],
+    "keywords": [
+        "go",
+        "golang",
+        "test",
+        "suite",
+        "run",
+        "debug",
+        "gocheck",
+        "check",
+        "go-check"
     ],
     "activationEvents": [
         "onStartupFinished"
     ],
     "main": "./out/extension.js",
+    "icon": "media/go.png",
     "extensionDependencies": [
         "golang.go"
     ],
-    "contributes": {
-        "commands": [
-            {
-                "command": "vscode-go-check-test-suite.helloWorld",
-                "title": "Hello World"
-            }
-        ]
-    },
+    "contributes": {},
     "scripts": {
         "vscode:prepublish": "npm run compile",
         "compile": "tsc -p ./",
@@ -37,7 +47,7 @@
         "@types/glob": "^8.1.0",
         "@types/mocha": "^10.0.1",
         "@types/node": "16.x",
-        "@types/vscode": "^1.76.0",
+        "@types/vscode": "^1.72.0",
         "@typescript-eslint/eslint-plugin": "^5.56.0",
         "@typescript-eslint/parser": "^5.56.0",
         "@vscode/test-electron": "^2.3.0",
@@ -45,9 +55,5 @@
         "glob": "^8.1.0",
         "mocha": "^10.2.0",
         "typescript": "^4.9.5"
-    },
-    "dependencies": {
-        "vscode-test-adapter-api": "^1.9.0",
-        "vscode-test-adapter-util": "^0.7.1"
     }
 }
