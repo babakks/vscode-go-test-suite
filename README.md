@@ -6,9 +6,13 @@ Run Go test functions written in third-party library formats (e.g., [`gocheck`][
 ## Supported test libraries
 
 - go-check ([`gopkg.in/check.v1`][gocheck-pkg])
+- quicktest ([`github.com/frankban/quicktest`][quicktest-pkg])
+- qtsuite ([`github.com/frankban/quicktest/qtsuite`][qtsuite-pkg])
 
 [gocheck]: https://labix.org/gocheck
 [gocheck-pkg]: https://pkg.go.dev/gopkg.in/check.v1
+[quicktest-pkg]: https://pkg.go.dev/github.com/frankban/quicktest
+[qtsuite-pkg]: https://pkg.go.dev/github.com/frankban/quicktest/qtsuite
 
 ## Notes
 
@@ -17,6 +21,14 @@ Run Go test functions written in third-party library formats (e.g., [`gocheck`][
   // Hook up go-check into the "go test" runner.
   func Test(t *testing.T) { 
       check.TestingT(t) 
+  }
+  ```
+
+- **`quicktest` and `qtsuite`** might need you to include this bootstrap function in your test packages (given that your test suite struct is named `myTestSuite`):
+  ```go
+  // Register your test suite's functions as subtests.
+  func Test(t *testing.T) { 
+    qtsuite.Run(quicktest.New(t), &myTestSuite{})
   }
   ```
 
