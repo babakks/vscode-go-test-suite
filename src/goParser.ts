@@ -17,7 +17,7 @@ export interface Import {
     lineNumber: number;
 }
 
-export type SupportedTestFunctionKinds = 'gocheck' | 'qtsuite';
+export type SupportedTestFunctionKinds = 'gocheck' | 'quicktest';
 
 export interface TestFunction {
     kind: SupportedTestFunctionKinds | undefined;
@@ -39,7 +39,9 @@ const _IMPORT_MULTI_LINE_ENTRY_REGEXP = /^\s*(?:(.*?) )?"(.*?)"\r?$/;
 const _SUITE_TEST_FUNCTION_REGEXP = /^func \(.*? \*?(.*?)\) (Test.*?)\(.*? \*?(?:(.*?)\.)?(.*?)\) \{/;
 
 const _GOCHECK_MODULE_NAME = 'gopkg.in/check.v1';
-const _QTSUTIE_MODULE_NAME = 'github.com/frankban/quicktest/qtsuite';
+const _GOCHECK_PACKAGE_NAME = 'check';
+const _QUICKTEST_MODULE_NAME = 'github.com/frankban/quicktest';
+const _QUICKTEST_PACKAGE_NAME = 'quicktest';
 
 /**
  * Partially parses Go files and extracts package/import/test data.
@@ -155,17 +157,17 @@ export class GoParser {
                 let argType: TestFunction['argType'];
                 if (!importsWithSameAlias.length) {
                     switch (argTypeModule) {
-                        case 'check':
+                        case _GOCHECK_PACKAGE_NAME:
                             if (!imports.some(x => x.moduleName === _GOCHECK_MODULE_NAME)) {
                                 continue;
                             }
                             argType = { moduleName: _GOCHECK_MODULE_NAME, typeName: match[4] };
                             break;
-                        case 'qtsuite':
-                            if (!imports.some(x => x.moduleName === _QTSUTIE_MODULE_NAME)) {
+                        case _QUICKTEST_PACKAGE_NAME:
+                            if (!imports.some(x => x.moduleName === _QUICKTEST_MODULE_NAME)) {
                                 continue;
                             }
-                            argType = { moduleName: _QTSUTIE_MODULE_NAME, typeName: match[4] };
+                            argType = { moduleName: _QUICKTEST_MODULE_NAME, typeName: match[4] };
                             break;
                         default:
                             // Unknown module.
@@ -176,7 +178,7 @@ export class GoParser {
                 }
                 result.push({
                     kind: argType.moduleName === _GOCHECK_MODULE_NAME ? 'gocheck' :
-                        argType.moduleName === _QTSUTIE_MODULE_NAME ? 'qtsuite' :
+                        argType.moduleName === _QUICKTEST_MODULE_NAME ? 'quicktest' :
                             undefined,
                     receiverType: match[1],
                     functionName: match[2],

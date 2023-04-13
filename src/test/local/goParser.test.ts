@@ -174,7 +174,7 @@ suite('GoParser', () => {
             assert.deepStrictEqual(
                 new GoParser('package p\nimport "gopkg.in/check.v1"\nfunc (s *SomeSuite) TestSomething(c *check.C) {').parseTestFunctions([{ lineNumber: 1, moduleName: 'gopkg.in/check.v1' }]),
                 <TestFunction[]>[{
-                    kind:'gocheck',
+                    kind: 'gocheck',
                     functionName: 'TestSomething',
                     lineNumber: 2,
                     range: [2, 0, 2, 47],
@@ -188,7 +188,7 @@ suite('GoParser', () => {
             assert.deepStrictEqual(
                 new GoParser('package p\nimport "gopkg.in/check.v1"\nfunc (s *SomeSuite) TestSomething(c *check.C) {').parseTestFunctions([{ lineNumber: 1, moduleName: 'gopkg.in/check.v1' }]),
                 <TestFunction[]>[{
-                    kind:'gocheck',
+                    kind: 'gocheck',
                     functionName: 'TestSomething',
                     lineNumber: 2,
                     range: [2, 0, 2, 47],
@@ -245,26 +245,26 @@ suite('GoParser', () => {
                     }]
                 },
                 {
-                    name: 'should detect `qtsuite` suite test function (non-aliased import)',
-                    content: 'func (s *SomeSuite) TestSomething(c *qtsuite.C) {}',
-                    imports: [{ lineNumber: 0, moduleName: 'github.com/frankban/quicktest/qtsuite' }],
+                    name: 'should detect `quicktest` suite test function (non-aliased import)',
+                    content: 'func (s *SomeSuite) TestSomething(c *quicktest.C) {}',
+                    imports: [{ lineNumber: 0, moduleName: 'github.com/frankban/quicktest' }],
                     expected: [{
-                        kind: 'qtsuite',
+                        kind: 'quicktest',
                         functionName: 'TestSomething',
-                        argType: { moduleName: 'github.com/frankban/quicktest/qtsuite', typeName: 'C' },
+                        argType: { moduleName: 'github.com/frankban/quicktest', typeName: 'C' },
                         receiverType: 'SomeSuite',
                         lineNumber: 0,
-                        range: [0, 0, 0, 49],
+                        range: [0, 0, 0, 51],
                     }]
                 },
                 {
-                    name: 'should detect `qtsuite` suite test function (aliased import)',
+                    name: 'should detect `quicktest` suite test function (aliased import)',
                     content: 'func (s *SomeSuite) TestSomething(c *alias.C) {}',
-                    imports: [{ lineNumber: 0, moduleName: 'github.com/frankban/quicktest/qtsuite', alias: 'alias' }],
+                    imports: [{ lineNumber: 0, moduleName: 'github.com/frankban/quicktest', alias: 'alias' }],
                     expected: [{
-                        kind: 'qtsuite',
+                        kind: 'quicktest',
                         functionName: 'TestSomething',
-                        argType: { moduleName: 'github.com/frankban/quicktest/qtsuite', typeName: 'C' },
+                        argType: { moduleName: 'github.com/frankban/quicktest', typeName: 'C' },
                         receiverType: 'SomeSuite',
                         lineNumber: 0,
                         range: [0, 0, 0, 47],
@@ -278,22 +278,22 @@ suite('GoParser', () => {
                 },
                 {
                     name: 'should return empty for test functions with missing library imports',
-                    content: 'func (s *SomeSuiteA) TestA(c *check.C) {}\nfunc (s *SomeSuiteB) TestB(c *qtsuite.C) {}',
+                    content: 'func (s *SomeSuiteA) TestA(c *check.C) {}\nfunc (s *SomeSuiteB) TestB(c *quicktest.C) {}',
                     imports: [],
                     expected: []
                 },
                 {
                     name: 'should detect suite test function correctly if aliases were changed over',
-                    content: 'func (s *SomeSuiteA) TestA(c *check.C) {}\nfunc (s *SomeSuiteB) TestB(c *qtsuite.C) {}',
+                    content: 'func (s *SomeSuiteA) TestA(c *check.C) {}\nfunc (s *SomeSuiteB) TestB(c *quicktest.C) {}',
                     imports: [
-                        { lineNumber: 0, moduleName: 'github.com/frankban/quicktest/qtsuite', alias: 'check' },
-                        { lineNumber: 1, moduleName: 'gopkg.in/check.v1', alias: 'qtsuite' }
+                        { lineNumber: 0, moduleName: 'github.com/frankban/quicktest', alias: 'check' },
+                        { lineNumber: 1, moduleName: 'gopkg.in/check.v1', alias: 'quicktest' }
                     ],
                     expected: [
                         {
-                            kind: 'qtsuite',
+                            kind: 'quicktest',
                             functionName: 'TestA',
-                            argType: { moduleName: 'github.com/frankban/quicktest/qtsuite', typeName: 'C' },
+                            argType: { moduleName: 'github.com/frankban/quicktest', typeName: 'C' },
                             receiverType: 'SomeSuiteA',
                             lineNumber: 0,
                             range: [0, 0, 0, 40],
@@ -304,7 +304,7 @@ suite('GoParser', () => {
                             argType: { moduleName: 'gopkg.in/check.v1', typeName: 'C' },
                             receiverType: 'SomeSuiteB',
                             lineNumber: 1,
-                            range: [1, 0, 1, 42],
+                            range: [1, 0, 1, 44],
                         }
                     ]
                 },
@@ -391,12 +391,12 @@ suite('GoParser', () => {
                 },
                 {
                     name: 'should detect suite test functions',
-                    content: 'package p\nimport (\n\tgc "gopkg.in/check.v1"\n\tqts "github.com/frankban/quicktest/qtsuite"\n)\nfunc (s* SomeSuiteA) TestA(c *gc.C) {}\nfunc (s* SomeSuiteB) TestB(c *qts.C) {}',
+                    content: 'package p\nimport (\n\tgc "gopkg.in/check.v1"\n\tqt "github.com/frankban/quicktest"\n)\nfunc (s* SomeSuiteA) TestA(c *gc.C) {}\nfunc (s* SomeSuiteB) TestB(c *qt.C) {}',
                     expected: {
                         packageInfo: { name: 'p', lineNumber: 0 },
                         imports: [
                             { moduleName: 'gopkg.in/check.v1', alias: 'gc', lineNumber: 2 },
-                            { moduleName: 'github.com/frankban/quicktest/qtsuite', alias: 'qts', lineNumber: 3 }
+                            { moduleName: 'github.com/frankban/quicktest', alias: 'qt', lineNumber: 3 }
                         ],
                         testFunctions: [
                             {
@@ -408,12 +408,12 @@ suite('GoParser', () => {
                                 range: [5, 0, 5, 37],
                             },
                             {
-                                kind: 'qtsuite',
+                                kind: 'quicktest',
                                 functionName: 'TestB',
-                                argType: { moduleName: 'github.com/frankban/quicktest/qtsuite', typeName: 'C' },
+                                argType: { moduleName: 'github.com/frankban/quicktest', typeName: 'C' },
                                 receiverType: 'SomeSuiteB',
                                 lineNumber: 6,
-                                range: [6, 0, 6, 38],
+                                range: [6, 0, 6, 37],
                             }
                         ]
                     }

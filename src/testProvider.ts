@@ -20,6 +20,11 @@ type TestData = TestFunction | 'file' | 'package';
 
 const _FAILED_TO_RETRIEVE_GO_EXECUTION_PARAMS_ERROR_MESSAGE = 'error: cannot retrieve `go` execution command from Go extension';
 
+interface OnCreateDebugAdapterTrackerEventArgs {
+    session: vscode.DebugSession;
+    tracker: vscode.DebugAdapterTracker | undefined;
+}
+
 /**
  * Provides Go tests for supported test libraries.
  *
@@ -30,12 +35,6 @@ const _FAILED_TO_RETRIEVE_GO_EXECUTION_PARAMS_ERROR_MESSAGE = 'error: cannot ret
  *     - Function (e.g., `TestSomething`)
  */
 export class TestProvider implements vscode.Disposable {
-    // private readonly testItemByUri = new Map<string, vscode.TestItem>();
-    // private readonly testDataByTestItem = new WeakMap<vscode.TestItem, TestData>();
-    // private readonly testItemByTestData = new WeakMap<TestData, vscode.TestItem>();
-    // private readonly packages = new WeakMap<TestPackageData, vscode.TestItem>();
-    // private readonly packagesById = new Map<string, TestPackageData>();
-
     private readonly _runProfile: vscode.TestRunProfile;
     private readonly _debugProfile: vscode.TestRunProfile;
 
@@ -43,6 +42,8 @@ export class TestProvider implements vscode.Disposable {
     private readonly _go: GoExtensionAPI;
 
     private readonly _map = new WeakMap<vscode.TestItem, TestData>();
+
+    private readonly _onCreateDebugAdapterTracker = new vscode.EventEmitter<OnCreateDebugAdapterTrackerEventArgs>();
 
     constructor(
         public readonly controller: vscode.TestController,
@@ -84,6 +85,14 @@ export class TestProvider implements vscode.Disposable {
             this._runProfile = controller.createRunProfile('Run', vscode.TestRunProfileKind.Run, (request, token) => this._startTestRun(false, request, token)),
             this._debugProfile = controller.createRunProfile('Debug', vscode.TestRunProfileKind.Debug, (request, token) => this._startTestRun(true, request, token))
         );
+
+        vscode.debug.registerDebugAdapterTrackerFactory('go', {
+            createDebugAdapterTracker: (session: vscode.DebugSession): vscode.ProviderResult<vscode.DebugAdapterTracker> => {
+                const e: OnCreateDebugAdapterTrackerEventArgs = { session, tracker: undefined };
+                this._onCreateDebugAdapterTracker.fire(e);
+                return e.tracker;
+            }
+        });
     }
 
     dispose() {
@@ -410,13 +419,24 @@ export class TestProvider implements vscode.Disposable {
             return;
         }
 
+        const goCheckSessionIDKey = 'goTestSessionID' as const;
+        const sessionId = randomUUID();
+
+        let tracker: GoTestDebugAdapterTracker | undefined = undefined;
+        const trackerListener = this._onCreateDebugAdapterTracker.event(e => {
+            if (e.tracker || e.session.configuration[goCheckSessionIDKey] !== sessionId) {
+                return;
+            }
+            e.tracker = tracker = new GoTestDebugAdapterTracker();
+            trackerListener.dispose();
+        });
+        this._disposables.push(trackerListener);
+
         const testDirectory = dirname(test.uri.path);
         const cmd = this.adapter.getDebugCommand(data, test.uri.path);
         const program = cmd.program || testDirectory;
         const args = cmd.args || [];
 
-        const goCheckSessionIDKey = 'goTestSessionID' as const;
-        const sessionId = randomUUID();
         let sessionStartSignal: (value: vscode.DebugSession) => void;
         const sessionStartPromise = new Promise<vscode.DebugSession>(resolve => { sessionStartSignal = resolve; });
         const listener = vscode.debug.onDidStartDebugSession(e => {
@@ -456,11 +476,40 @@ export class TestProvider implements vscode.Disposable {
 
         const listener2 = vscode.debug.onDidTerminateDebugSession(e => {
             if (e.configuration[goCheckSessionIDKey] === sessionId) {
-                const output = tryReadFileSync(logFile.fsPath);
-                if (output) {
-                    this._log(output, run);
+                if (tracker) {
+                    const stdout = tracker.stdout.join('\r\n');
+                    const stderr = tracker.stderr.join('\r\n');
+                    const others = tracker.others.join('\r\n');
+                    const trail = [stdout, stderr, others].join('\r\n');
+                    const markAsFailed = () => run.failed(test, new vscode.TestMessage(trail));
+                    const markAsPassed = () => run.passed(test);
+                    this._log(trail);
+                    if (tracker.error) {
+                        markAsFailed();
+                    } else if (tracker.exitCode !== undefined) {
+                        if (!tracker.exitCode) {
+                            markAsPassed();
+                        } else {
+                            markAsFailed();
+                        }
+                    } else {
+                        if (/^PASS$/m.exec(stdout)) {
+                            markAsPassed();
+                        } else if (/^FAIL$/m.exec(stdout)) {
+                            markAsFailed();
+                        } else {
+                            run.skipped(test);
+                        }
+                    }
+                } else {
+                    run.skipped(test);
                 }
-                run.skipped(test);
+
+                const debuggerLog = tryReadFileSync(logFile.fsPath);
+                if (debuggerLog) {
+                    this._log(debuggerLog, run);
+                }
+
                 listener2.dispose();
                 sessionStopSignal();
             }
@@ -486,6 +535,52 @@ export class TestProvider implements vscode.Disposable {
     }
 }
 
+class GoTestDebugAdapterTracker implements vscode.DebugAdapterTracker {
+    public readonly stdout: string[] = [];
+    public readonly stderr: string[] = [];
+    public readonly others: string[] = [];
+
+    private _exitCode: number | undefined = undefined;
+    get exitCode() {
+        return this._exitCode;
+    }
+
+    private _error: Error | undefined = undefined;
+    get error() {
+        return this._error;
+    }
+
+    /**
+     * The debug adapter has sent a Debug Adapter Protocol message to the editor.
+     */
+    onDidSendMessage(message: any): void {
+        if (message['type'] !== 'event' || message['event'] !== 'output') {
+            return;
+        }
+        if (message.body.category === 'stdout') {
+            this.stdout.push(message.body.output);
+        } else if (message.body.category === 'stderr') {
+            this.stderr.push(message.body.output);
+        } else {
+            this.others.push(message.body.output);
+        }
+    }
+
+    /**
+     * An error with the debug adapter has occurred.
+     */
+    onError(error: Error): void {
+        this._error = error;
+    }
+
+    /**
+     * The debug adapter has exited with the given exit code or signal.
+     */
+    onExit(code: number | undefined, signal: string | undefined): void {
+        this._exitCode = code;
+    }
+}
+
 export class GocheckTestLibraryAdapter implements TestLibraryAdapter {
     discoverTestFunctions(content: string, path: string): TestFunction[] {
         return new GoParser(content).parse()?.testFunctions.filter(x => x.kind === 'gocheck') || [];
@@ -499,5 +594,19 @@ export class GocheckTestLibraryAdapter implements TestLibraryAdapter {
     getDebugCommand(data: TestFunction, path: string): { program?: string | undefined; args?: string[] | undefined; } {
         assert(data.receiverType);
         return { args: ['-check.f', `${data.receiverType}.${data.functionName}`] };
+    }
+}
+
+export class QtsuiteTestLibraryAdapter implements TestLibraryAdapter {
+    discoverTestFunctions(content: string, path: string): TestFunction[] {
+        return new GoParser(content).parse()?.testFunctions.filter(x => x.kind === 'quicktest') || [];
+    }
+
+    getRunCommand(data: TestFunction, path: string): { command?: string | undefined; args?: string[] | undefined; } {
+        return { args: ['test', '-run', `.*/${data.functionName}`] };
+    }
+
+    getDebugCommand(data: TestFunction, path: string): { program?: string | undefined; args?: string[] | undefined; } {
+        return { args: ['-test.run', `.*/${data.functionName}`] };
     }
 }
