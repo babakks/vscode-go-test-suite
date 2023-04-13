@@ -35,12 +35,6 @@ interface OnCreateDebugAdapterTrackerEventArgs {
  *     - Function (e.g., `TestSomething`)
  */
 export class TestProvider implements vscode.Disposable {
-    // private readonly testItemByUri = new Map<string, vscode.TestItem>();
-    // private readonly testDataByTestItem = new WeakMap<vscode.TestItem, TestData>();
-    // private readonly testItemByTestData = new WeakMap<TestData, vscode.TestItem>();
-    // private readonly packages = new WeakMap<TestPackageData, vscode.TestItem>();
-    // private readonly packagesById = new Map<string, TestPackageData>();
-
     private readonly _runProfile: vscode.TestRunProfile;
     private readonly _debugProfile: vscode.TestRunProfile;
 
