@@ -12,6 +12,7 @@
         "GOCHECK",
         "gopkg",
         "qtsuite",
-        "QTSUTIE"
+        "QTSUTIE",
+        "quicktest"
     ],
 }
