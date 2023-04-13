@@ -501,3 +501,17 @@ export class GocheckTestLibraryAdapter implements TestLibraryAdapter {
         return { args: ['-check.f', `${data.receiverType}.${data.functionName}`] };
     }
 }
+
+export class QtsuiteTestLibraryAdapter implements TestLibraryAdapter {
+    discoverTestFunctions(content: string, path: string): TestFunction[] {
+        return new GoParser(content).parse()?.testFunctions.filter(x => x.kind === 'quicktest') || [];
+    }
+
+    getRunCommand(data: TestFunction, path: string): { command?: string | undefined; args?: string[] | undefined; } {
+        return { args: ['test', '-run', `.*/${data.functionName}`] };
+    }
+
+    getDebugCommand(data: TestFunction, path: string): { program?: string | undefined; args?: string[] | undefined; } {
+        return { args: ['-test.run', `.*/${data.functionName}`] };
+    }
+}
