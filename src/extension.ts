@@ -1,29 +1,39 @@
 import { mkdirSync } from 'fs';
 import * as vscode from 'vscode';
-import { GocheckTestLibraryAdapter, QtsuiteTestLibraryAdapter, TestProvider } from './testProvider';
+import TelemetryReporter from '@vscode/extension-telemetry';
+
+import { GocheckTestLibraryAdapter, QtsuiteTestLibraryAdapter, TelemetrySetup, TestProvider } from './testProvider';
+
+const _TELEMETRY_INSTRUMENTATION_KEY = '52da75ef-7ead-4f50-be55-f5644f9b7f4f';
+let _reporter: TelemetryReporter;
 
 export function activate(context: vscode.ExtensionContext) {
+    context.subscriptions.push(
+        _reporter = new TelemetryReporter(_TELEMETRY_INSTRUMENTATION_KEY)
+    );
     mkdirSync(context.logUri.fsPath, { recursive: true });
     context.subscriptions.push(
-        ...setupGocheckTestProvider(context),
-        ...setupQtsuiteTestProvider(context),
+        ...setupGocheckTestProvider(context, _reporter),
+        ...setupQtsuiteTestProvider(context, _reporter),
     );
 }
 
 export function deactivate() { }
 
-function setupGocheckTestProvider(context: vscode.ExtensionContext): vscode.Disposable[] {
-    const gocheckController = vscode.tests.createTestController('gocheck', 'Go (gocheck)');
-    const gocheckOutput = vscode.window.createOutputChannel('Go (gocheck)');
-    const gocheckAdapter = new GocheckTestLibraryAdapter();
-    const gocheckTestProvider = new TestProvider(gocheckController, gocheckOutput, gocheckAdapter, context.logUri);
-    return [gocheckController, gocheckOutput, gocheckTestProvider];
+function setupGocheckTestProvider(context: vscode.ExtensionContext, reporter: TelemetryReporter): vscode.Disposable[] {
+    const controller = vscode.tests.createTestController('gocheck', 'Go (gocheck)');
+    const output = vscode.window.createOutputChannel('Go (gocheck)');
+    const adapter = new GocheckTestLibraryAdapter();
+    const telemetry: TelemetrySetup = { reporter, events: { run: 'gocheck.run', debug: 'gocheck.debug', } };
+    const provider = new TestProvider(telemetry, controller, output, adapter, context.logUri);
+    return [controller, output, provider];
 }
 
-function setupQtsuiteTestProvider(context: vscode.ExtensionContext): vscode.Disposable[] {
-    const qtsuiteController = vscode.tests.createTestController('qtsuite', 'Go (qtsuite)');
-    const qtsuiteOutput = vscode.window.createOutputChannel('Go (qtsuite)');
-    const qtsuiteAdapter = new QtsuiteTestLibraryAdapter();
-    const qtsuiteTestProvider = new TestProvider(qtsuiteController, qtsuiteOutput, qtsuiteAdapter, context.logUri);
-    return [qtsuiteController, qtsuiteOutput, qtsuiteTestProvider];
+function setupQtsuiteTestProvider(context: vscode.ExtensionContext, reporter: TelemetryReporter): vscode.Disposable[] {
+    const controller = vscode.tests.createTestController('qtsuite', 'Go (qtsuite)');
+    const output = vscode.window.createOutputChannel('Go (qtsuite)');
+    const adapter = new QtsuiteTestLibraryAdapter();
+    const telemetry: TelemetrySetup = { reporter, events: { run: 'quicktest.run', debug: 'quicktest.debug', } };
+    const provider = new TestProvider(telemetry, controller, output, adapter, context.logUri);
+    return [controller, output, provider];
 }
