@@ -9,6 +9,7 @@ import assert = require('assert');
 import { filterChildren, firstChild, traceChildren, tryReadFileSync } from './util';
 import { readFileSync } from 'fs';
 import path = require('path');
+import TelemetryReporter from '@vscode/extension-telemetry';
 
 export interface TestLibraryAdapter {
     discoverTestFunctions(content: string, path: string): TestFunction[];
@@ -24,6 +25,14 @@ interface OnCreateDebugAdapterTrackerEventArgs {
     session: vscode.DebugSession;
     tracker: vscode.DebugAdapterTracker | undefined;
 }
+
+export type TelemetrySetup = {
+    reporter: TelemetryReporter,
+    events: {
+        run: string;
+        debug: string;
+    }
+};
 
 /**
  * Provides Go tests for supported test libraries.
@@ -46,6 +55,7 @@ export class TestProvider implements vscode.Disposable {
     private readonly _onCreateDebugAdapterTracker = new vscode.EventEmitter<OnCreateDebugAdapterTrackerEventArgs>();
 
     constructor(
+        public readonly telemetry: TelemetrySetup,
         public readonly controller: vscode.TestController,
         public readonly output: vscode.OutputChannel,
         public readonly adapter: TestLibraryAdapter,
@@ -327,8 +337,10 @@ export class TestProvider implements vscode.Disposable {
                     run.started(test);
                     this._log(`Running ${test.id}\r\n`, run);
                     if (isDebug) {
+                        this.telemetry.reporter.sendTelemetryEvent(this.telemetry.events.debug);
                         await this._debug(run, test, data, token);
                     } else {
+                        this.telemetry.reporter.sendTelemetryEvent(this.telemetry.events.run);
                         await this._run(run, test, data, token);
                     }
                     this._log(`Completed ${test.id}\r\n`, run);
