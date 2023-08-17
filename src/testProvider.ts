@@ -600,12 +600,12 @@ export class GocheckTestLibraryAdapter implements TestLibraryAdapter {
 
     getRunCommand(data: TestFunction, path: string): { command?: string | undefined; args?: string[] | undefined; } {
         assert(data.receiverType);
-        return { args: ['test', '-check.f', `${data.receiverType}.${data.functionName}`] };
+        return { args: ['test', '-check.f', `^${data.receiverType}.${data.functionName}$`] };
     }
 
     getDebugCommand(data: TestFunction, path: string): { program?: string | undefined; args?: string[] | undefined; } {
         assert(data.receiverType);
-        return { args: ['-check.f', `${data.receiverType}.${data.functionName}`] };
+        return { args: ['-check.f', `^${data.receiverType}.${data.functionName}$`] };
     }
 }
 
