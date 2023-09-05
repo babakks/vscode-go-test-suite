@@ -389,6 +389,7 @@ export class TestProvider implements vscode.Disposable {
 
         type ProcessResult = { code: number | null; stdout: string; stderr: string; };
         test.busy = true;
+        const start = Date.now();
         const result = await new Promise<ProcessResult>(resolve => {
             assert(test.uri);
             const cp = spawn(command, args, {
@@ -412,7 +413,6 @@ export class TestProvider implements vscode.Disposable {
             });
         });
         test.busy = false;
-        const start = Date.now();
         if (result.code === 0) {
             if (result.stdout) {
                 this._log(result.stdout, run);
