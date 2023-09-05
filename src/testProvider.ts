@@ -44,15 +44,18 @@ export type TelemetrySetup = {
  *     - Function (e.g., `TestSomething`)
  */
 export class TestProvider implements vscode.Disposable {
-    private readonly _runProfile: vscode.TestRunProfile;
-    private readonly _debugProfile: vscode.TestRunProfile;
-
     private readonly _disposables: vscode.Disposable[] = [];
-    private readonly _go: GoExtensionAPI;
+    private _goExtension: GoExtensionAPI | undefined;
 
     private readonly _map = new WeakMap<vscode.TestItem, TestData>();
 
     private readonly _onCreateDebugAdapterTracker = new vscode.EventEmitter<OnCreateDebugAdapterTrackerEventArgs>();
+
+    private readonly _onUpdateEmitter = new vscode.EventEmitter<void>();
+    /**
+     * Fires when the list of discovered tests is updated.
+     */
+    readonly onUpdate = this._onUpdateEmitter.event;
 
     constructor(
         public readonly telemetry: TelemetrySetup,
@@ -61,8 +64,6 @@ export class TestProvider implements vscode.Disposable {
         public readonly adapter: TestLibraryAdapter,
         public readonly logUri: vscode.Uri,
     ) {
-        this._go = this._getGoExtension().exports;
-
         // First, create the `resolveHandler`. This may initially be called with
         // "undefined" to ask for all tests in the workspace to be discovered, usually
         // when the user opens the Test Explorer for the first time.
@@ -87,13 +88,17 @@ export class TestProvider implements vscode.Disposable {
             }
         };
 
+        this.controller.refreshHandler = async (token: vscode.CancellationToken) => {
+            await this._discoverAllTests(token);
+        };
+
         this._disposables.push(
             // When text documents are open, parse tests in them.
             vscode.workspace.onDidOpenTextDocument(e => this._discoverTestsInFile(e.uri, e.getText())),
             // // We could also listen to document changes to re-parse unsaved changes:
             // vscode.workspace.onDidChangeTextDocument(e => this.parseTestsInDocument(e.document)),
-            this._runProfile = controller.createRunProfile('Run', vscode.TestRunProfileKind.Run, (request, token) => this._startTestRun(false, request, token)),
-            this._debugProfile = controller.createRunProfile('Debug', vscode.TestRunProfileKind.Debug, (request, token) => this._startTestRun(true, request, token))
+            controller.createRunProfile('Run', vscode.TestRunProfileKind.Run, (request, token) => this._startTestRun(false, request, token)),
+            controller.createRunProfile('Debug', vscode.TestRunProfileKind.Debug, (request, token) => this._startTestRun(true, request, token)),
         );
 
         vscode.debug.registerDebugAdapterTrackerFactory('go', {
@@ -109,10 +114,37 @@ export class TestProvider implements vscode.Disposable {
         this._disposables.forEach(x => x.dispose);
     }
 
-    private _getGoExtension() {
-        const result = vscode.extensions.getExtension<GoExtensionAPI>('golang.go');
-        if (!result || !result.isActive) {
-            throw new Error('Go extension should be present and activated');
+    private async _go() {
+        if (this._goExtension) {
+            return this._goExtension;
+        }
+
+        const ext = vscode.extensions.getExtension<GoExtensionAPI>('golang.go');
+        if (!ext) {
+            throw new Error('Go extension should be installed');
+        }
+        if (!ext.isActive) {
+            await ext.activate();
+        }
+        this._goExtension = ext.exports;
+        return this._goExtension;
+    }
+
+    getTests(): vscode.TestItem[] {
+        const result: vscode.TestItem[] = [];
+        const stack: vscode.TestItem[] = [];
+
+        const push = (values: vscode.TestItemCollection) => values.forEach(x => stack.push(x));
+        push(this.controller.items);
+        while (true) {
+            const entry = stack.pop();
+            if (!entry) {
+                break;
+            }
+            if (entry.range) {
+                result.push(entry);
+            }
+            push(entry.children);
         }
         return result;
     }
@@ -196,6 +228,8 @@ export class TestProvider implements vscode.Disposable {
             return;
         }
 
+        let updated = false;
+
         const directory = uri.with({ path: dirname(uri.path) });
         const packageId = `${directory.path}:${packageName}`;
         let packageItem = this.controller.items.get(packageId);
@@ -205,6 +239,7 @@ export class TestProvider implements vscode.Disposable {
             packageItem = this.controller.createTestItem(packageId, label, directory);
             this.controller.items.add(packageItem);
             this._map.set(packageItem, 'package');
+            updated = true;
         }
 
         const filenameWithoutExtension = filename.split('.').slice(0, -1).join('.');
@@ -214,6 +249,7 @@ export class TestProvider implements vscode.Disposable {
             fileItem = this.controller.createTestItem(fileId, filename, uri);
             packageItem.children.add(fileItem);
             this._map.set(fileItem, 'file');
+            updated = true;
         }
 
         for (const t of discovered) {
@@ -222,6 +258,11 @@ export class TestProvider implements vscode.Disposable {
             item.range = new vscode.Range(...t.range);
             fileItem.children.add(item);
             this._map.set(item, t);
+            updated = true;
+        }
+
+        if (updated) {
+            this._onUpdateEmitter.fire();
         }
     }
 
@@ -282,7 +323,7 @@ export class TestProvider implements vscode.Disposable {
             }
             return watcher;
         });
-        return Promise.all(promises);
+        return await Promise.all(promises);
     }
 
     private _getCancellationTokenPromise(token: vscode.CancellationToken) {
@@ -366,7 +407,7 @@ export class TestProvider implements vscode.Disposable {
     private async _run(run: vscode.TestRun, test: vscode.TestItem, data: TestFunction, token: vscode.CancellationToken) {
         assert(test.uri);
 
-        const execution = this._go.settings.getExecutionCommand('go');
+        const execution = (await this._go()).settings.getExecutionCommand('go');
         if (!execution) {
             this._log(_FAILED_TO_RETRIEVE_GO_EXECUTION_PARAMS_ERROR_MESSAGE, run);
             run.skipped(test);
@@ -380,6 +421,7 @@ export class TestProvider implements vscode.Disposable {
 
         type ProcessResult = { code: number | null; stdout: string; stderr: string; };
         test.busy = true;
+        const start = Date.now();
         const result = await new Promise<ProcessResult>(resolve => {
             assert(test.uri);
             const cp = spawn(command, args, {
@@ -392,10 +434,10 @@ export class TestProvider implements vscode.Disposable {
                 stderr: '',
             };
             cp.stdout.on('data', (data) => {
-                result.stdout += data.toString();
+                result.stdout += (data.toString() as string).replace(/\r?\n/g, '\r\n');
             });
             cp.stderr.on('data', (data) => {
-                result.stderr += data.toString();
+                result.stderr += (data.toString() as string).replace(/\r?\n/g, '\r\n');;
             });
             cp.on('close', (code) => {
                 result.code = code;
@@ -403,7 +445,6 @@ export class TestProvider implements vscode.Disposable {
             });
         });
         test.busy = false;
-        const start = Date.now();
         if (result.code === 0) {
             if (result.stdout) {
                 this._log(result.stdout, run);
@@ -424,7 +465,7 @@ export class TestProvider implements vscode.Disposable {
     private async _debug(run: vscode.TestRun, test: vscode.TestItem, data: TestFunction, token: vscode.CancellationToken) {
         assert(test.uri);
 
-        const execution = this._go.settings.getExecutionCommand('go');
+        const execution = (await this._go()).settings.getExecutionCommand('go');
         if (!execution) {
             this._log(_FAILED_TO_RETRIEVE_GO_EXECUTION_PARAMS_ERROR_MESSAGE, run);
             run.skipped(test);

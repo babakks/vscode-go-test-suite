@@ -2,7 +2,7 @@
     "name": "vscode-go-test-suite",
     "displayName": "Go Test Suite Support",
     "description": "VS Code extension to click and run Go test functions written in third-party library formats",
-    "version": "0.0.4",
+    "version": "0.0.5",
     "publisher": "babakks",
     "repository": {
         "type": "git",
@@ -33,10 +33,14 @@
     ],
     "main": "./out/extension.js",
     "icon": "media/go.png",
-    "extensionDependencies": [
-        "golang.go"
-    ],
-    "contributes": {},
+    "contributes": {
+        "commands": [
+            {
+                "command": "vscode-go-test-suite._moveCursorAndExecuteTest",
+                "title": "_moveCursorAndExecuteTest"
+            }
+        ]
+    },
     "scripts": {
         "vscode:prepublish": "npm run compile",
         "compile": "tsc -p ./",
