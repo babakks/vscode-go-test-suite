@@ -51,6 +51,12 @@ export class TestProvider implements vscode.Disposable {
 
     private readonly _onCreateDebugAdapterTracker = new vscode.EventEmitter<OnCreateDebugAdapterTrackerEventArgs>();
 
+    private readonly _onUpdateEmitter = new vscode.EventEmitter<void>();
+    /**
+     * Fires when the list of discovered tests is updated.
+     */
+    readonly onUpdate = this._onUpdateEmitter.event;
+
     constructor(
         public readonly telemetry: TelemetrySetup,
         public readonly controller: vscode.TestController,
@@ -222,6 +228,8 @@ export class TestProvider implements vscode.Disposable {
             return;
         }
 
+        let updated = false;
+
         const directory = uri.with({ path: dirname(uri.path) });
         const packageId = `${directory.path}:${packageName}`;
         let packageItem = this.controller.items.get(packageId);
@@ -231,6 +239,7 @@ export class TestProvider implements vscode.Disposable {
             packageItem = this.controller.createTestItem(packageId, label, directory);
             this.controller.items.add(packageItem);
             this._map.set(packageItem, 'package');
+            updated = true;
         }
 
         const filenameWithoutExtension = filename.split('.').slice(0, -1).join('.');
@@ -240,6 +249,7 @@ export class TestProvider implements vscode.Disposable {
             fileItem = this.controller.createTestItem(fileId, filename, uri);
             packageItem.children.add(fileItem);
             this._map.set(fileItem, 'file');
+            updated = true;
         }
 
         for (const t of discovered) {
@@ -248,6 +258,11 @@ export class TestProvider implements vscode.Disposable {
             item.range = new vscode.Range(...t.range);
             fileItem.children.add(item);
             this._map.set(item, t);
+            updated = true;
+        }
+
+        if (updated) {
+            this._onUpdateEmitter.fire();
         }
     }
 
@@ -308,7 +323,7 @@ export class TestProvider implements vscode.Disposable {
             }
             return watcher;
         });
-        return Promise.all(promises);
+        return await Promise.all(promises);
     }
 
     private _getCancellationTokenPromise(token: vscode.CancellationToken) {
