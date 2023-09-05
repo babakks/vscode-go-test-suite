@@ -44,9 +44,6 @@ export type TelemetrySetup = {
  *     - Function (e.g., `TestSomething`)
  */
 export class TestProvider implements vscode.Disposable {
-    private readonly _runProfile: vscode.TestRunProfile;
-    private readonly _debugProfile: vscode.TestRunProfile;
-
     private readonly _disposables: vscode.Disposable[] = [];
     private _goExtension: GoExtensionAPI | undefined;
 
@@ -90,8 +87,8 @@ export class TestProvider implements vscode.Disposable {
             vscode.workspace.onDidOpenTextDocument(e => this._discoverTestsInFile(e.uri, e.getText())),
             // // We could also listen to document changes to re-parse unsaved changes:
             // vscode.workspace.onDidChangeTextDocument(e => this.parseTestsInDocument(e.document)),
-            this._runProfile = controller.createRunProfile('Run', vscode.TestRunProfileKind.Run, (request, token) => this._startTestRun(false, request, token)),
-            this._debugProfile = controller.createRunProfile('Debug', vscode.TestRunProfileKind.Debug, (request, token) => this._startTestRun(true, request, token))
+            controller.createRunProfile('Run', vscode.TestRunProfileKind.Run, (request, token) => this._startTestRun(false, request, token)),
+            controller.createRunProfile('Debug', vscode.TestRunProfileKind.Debug, (request, token) => this._startTestRun(true, request, token)),
         );
 
         vscode.debug.registerDebugAdapterTrackerFactory('go', {
