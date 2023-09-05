@@ -48,7 +48,7 @@ export class TestProvider implements vscode.Disposable {
     private readonly _debugProfile: vscode.TestRunProfile;
 
     private readonly _disposables: vscode.Disposable[] = [];
-    private readonly _go: GoExtensionAPI;
+    private _goExtension: GoExtensionAPI | undefined;
 
     private readonly _map = new WeakMap<vscode.TestItem, TestData>();
 
@@ -61,8 +61,6 @@ export class TestProvider implements vscode.Disposable {
         public readonly adapter: TestLibraryAdapter,
         public readonly logUri: vscode.Uri,
     ) {
-        this._go = this._getGoExtension().exports;
-
         // First, create the `resolveHandler`. This may initially be called with
         // "undefined" to ask for all tests in the workspace to be discovered, usually
         // when the user opens the Test Explorer for the first time.
@@ -109,10 +107,20 @@ export class TestProvider implements vscode.Disposable {
         this._disposables.forEach(x => x.dispose);
     }
 
-    private _getGoExtension() {
-        const result = vscode.extensions.getExtension<GoExtensionAPI>('golang.go');
-        if (!result || !result.isActive) {
-            throw new Error('Go extension should be present and activated');
+    private async _go() {
+        if (this._goExtension) {
+            return this._goExtension;
+        }
+
+        const ext = vscode.extensions.getExtension<GoExtensionAPI>('golang.go');
+        if (!ext) {
+            throw new Error('Go extension should be installed');
+        }
+        if (!ext.isActive) {
+            await ext.activate();
+        }
+        this._goExtension = ext.exports;
+        return this._goExtension;
         }
         return result;
     }
@@ -366,7 +374,7 @@ export class TestProvider implements vscode.Disposable {
     private async _run(run: vscode.TestRun, test: vscode.TestItem, data: TestFunction, token: vscode.CancellationToken) {
         assert(test.uri);
 
-        const execution = this._go.settings.getExecutionCommand('go');
+        const execution = (await this._go()).settings.getExecutionCommand('go');
         if (!execution) {
             this._log(_FAILED_TO_RETRIEVE_GO_EXECUTION_PARAMS_ERROR_MESSAGE, run);
             run.skipped(test);
@@ -424,7 +432,7 @@ export class TestProvider implements vscode.Disposable {
     private async _debug(run: vscode.TestRun, test: vscode.TestItem, data: TestFunction, token: vscode.CancellationToken) {
         assert(test.uri);
 
-        const execution = this._go.settings.getExecutionCommand('go');
+        const execution = (await this._go()).settings.getExecutionCommand('go');
         if (!execution) {
             this._log(_FAILED_TO_RETRIEVE_GO_EXECUTION_PARAMS_ERROR_MESSAGE, run);
             run.skipped(test);
