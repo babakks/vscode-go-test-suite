@@ -82,6 +82,10 @@ export class TestProvider implements vscode.Disposable {
             }
         };
 
+        this.controller.refreshHandler = async (token: vscode.CancellationToken) => {
+            await this._discoverAllTests(token);
+        };
+
         this._disposables.push(
             // When text documents are open, parse tests in them.
             vscode.workspace.onDidOpenTextDocument(e => this._discoverTestsInFile(e.uri, e.getText())),
