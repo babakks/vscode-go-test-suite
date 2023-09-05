@@ -1,9 +1,9 @@
+import TelemetryReporter from '@vscode/extension-telemetry';
 import { mkdirSync } from 'fs';
 import * as vscode from 'vscode';
-import TelemetryReporter from '@vscode/extension-telemetry';
-
-import { GocheckTestLibraryAdapter, QtsuiteTestLibraryAdapter, TelemetrySetup, TestProvider } from './testProvider';
+import { ExecuteTestCodeLensProvider } from './codeLens';
 import { registerCommands } from './command';
+import { GocheckTestLibraryAdapter, QtsuiteTestLibraryAdapter, TelemetrySetup, TestProvider } from './testProvider';
 
 const _TELEMETRY_INSTRUMENTATION_KEY = '52da75ef-7ead-4f50-be55-f5644f9b7f4f';
 let _reporter: TelemetryReporter;
@@ -20,6 +20,10 @@ export function activate(context: vscode.ExtensionContext) {
     const qtsuite = setupQtsuiteTestProvider(context, _reporter);
     context.subscriptions.push(qtsuite.controller, qtsuite.output, qtsuite.provider);
 
+    vscode.languages.registerCodeLensProvider(
+        { language: 'go', pattern: '/**/*_test.go' },
+        new ExecuteTestCodeLensProvider([gocheck.provider, qtsuite.provider]),
+    ),
 
     context.subscriptions.push(...registerCommands());
 }
