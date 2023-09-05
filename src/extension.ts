@@ -3,6 +3,7 @@ import * as vscode from 'vscode';
 import TelemetryReporter from '@vscode/extension-telemetry';
 
 import { GocheckTestLibraryAdapter, QtsuiteTestLibraryAdapter, TelemetrySetup, TestProvider } from './testProvider';
+import { registerCommands } from './command';
 
 const _TELEMETRY_INSTRUMENTATION_KEY = '52da75ef-7ead-4f50-be55-f5644f9b7f4f';
 let _reporter: TelemetryReporter;
@@ -16,6 +17,8 @@ export function activate(context: vscode.ExtensionContext) {
         ...setupGocheckTestProvider(context, _reporter),
         ...setupQtsuiteTestProvider(context, _reporter),
     );
+
+    context.subscriptions.push(...registerCommands());
 }
 
 export function deactivate() { }
