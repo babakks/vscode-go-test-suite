@@ -33,10 +33,6 @@
     ],
     "main": "./out/extension.js",
     "icon": "media/go.png",
-    "extensionDependencies": [
-        "golang.go"
-    ],
-    "contributes": {},
     "scripts": {
         "vscode:prepublish": "npm run compile",
         "compile": "tsc -p ./",
