@@ -26,6 +26,8 @@ export function activate(context: vscode.ExtensionContext) {
     ),
 
     context.subscriptions.push(...registerCommands());
+
+    vscode.commands.executeCommand('testing.refreshTests');
 }
 
 export function deactivate() { }
