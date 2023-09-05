@@ -13,30 +13,33 @@ export function activate(context: vscode.ExtensionContext) {
         _reporter = new TelemetryReporter(_TELEMETRY_INSTRUMENTATION_KEY)
     );
     mkdirSync(context.logUri.fsPath, { recursive: true });
-    context.subscriptions.push(
-        ...setupGocheckTestProvider(context, _reporter),
-        ...setupQtsuiteTestProvider(context, _reporter),
-    );
+
+    const gocheck = setupGocheckTestProvider(context, _reporter);
+    context.subscriptions.push(gocheck.controller, gocheck.output, gocheck.provider);
+
+    const qtsuite = setupQtsuiteTestProvider(context, _reporter);
+    context.subscriptions.push(qtsuite.controller, qtsuite.output, qtsuite.provider);
+
 
     context.subscriptions.push(...registerCommands());
 }
 
 export function deactivate() { }
 
-function setupGocheckTestProvider(context: vscode.ExtensionContext, reporter: TelemetryReporter): vscode.Disposable[] {
+function setupGocheckTestProvider(context: vscode.ExtensionContext, reporter: TelemetryReporter) {
     const controller = vscode.tests.createTestController('gocheck', 'Go (gocheck)');
     const output = vscode.window.createOutputChannel('Go (gocheck)');
     const adapter = new GocheckTestLibraryAdapter();
     const telemetry: TelemetrySetup = { reporter, events: { run: 'gocheck.run', debug: 'gocheck.debug', } };
     const provider = new TestProvider(telemetry, controller, output, adapter, context.logUri);
-    return [controller, output, provider];
+    return { controller, output, provider };
 }
 
-function setupQtsuiteTestProvider(context: vscode.ExtensionContext, reporter: TelemetryReporter): vscode.Disposable[] {
+function setupQtsuiteTestProvider(context: vscode.ExtensionContext, reporter: TelemetryReporter) {
     const controller = vscode.tests.createTestController('qtsuite', 'Go (qtsuite)');
     const output = vscode.window.createOutputChannel('Go (qtsuite)');
     const adapter = new QtsuiteTestLibraryAdapter();
     const telemetry: TelemetrySetup = { reporter, events: { run: 'quicktest.run', debug: 'quicktest.debug', } };
     const provider = new TestProvider(telemetry, controller, output, adapter, context.logUri);
-    return [controller, output, provider];
+    return { controller, output, provider };
 }
