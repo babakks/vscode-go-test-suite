@@ -122,6 +122,23 @@ export class TestProvider implements vscode.Disposable {
         }
         this._goExtension = ext.exports;
         return this._goExtension;
+    }
+
+    getTests(): vscode.TestItem[] {
+        const result: vscode.TestItem[] = [];
+        const stack: vscode.TestItem[] = [];
+
+        const push = (values: vscode.TestItemCollection) => values.forEach(x => stack.push(x));
+        push(this.controller.items);
+        while (true) {
+            const entry = stack.pop();
+            if (!entry) {
+                break;
+            }
+            if (entry.range) {
+                result.push(entry);
+            }
+            push(entry.children);
         }
         return result;
     }
