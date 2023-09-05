@@ -3,6 +3,10 @@
 Run Go test functions written in third-party library formats (e.g., [`gocheck`][gocheck]) from the *Testing* sidebar.
 
 
+## Features
+
+- Run/debug tests by clicking on the Code Lens button appearing above test functions.
+
 ## Supported test libraries
 
 - go-check ([`gopkg.in/check.v1`][gocheck-pkg])
@@ -22,6 +26,15 @@ Run Go test functions written in third-party library formats (e.g., [`gocheck`][
   func Test(t *testing.T) { 
       check.TestingT(t) 
   }
+
+  type myTestSuite struct {
+  }
+
+  var _ = check.Suite(&myTestSuite{})
+
+  func (s *myTestSuite) TestSomething(c *check.C) {
+    // ...
+  }
   ```
 
 - **`quicktest` and `qtsuite`** might need you to include this bootstrap function in your test packages (given that your test suite struct is named `myTestSuite`):
@@ -29,6 +42,13 @@ Run Go test functions written in third-party library formats (e.g., [`gocheck`][
   // Register your test suite's functions as subtests.
   func Test(t *testing.T) { 
     qtsuite.Run(quicktest.New(t), &myTestSuite{})
+  }
+
+  type myTestSuite struct {
+  }
+
+  func (s *myTestSuite) TestSomething(c *quicktest.C) {
+    // ...
   }
   ```
 
