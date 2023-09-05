@@ -33,6 +33,14 @@
     ],
     "main": "./out/extension.js",
     "icon": "media/go.png",
+    "contributes": {
+        "commands": [
+            {
+                "command": "vscode-go-test-suite._moveCursorAndExecuteTest",
+                "title": "_moveCursorAndExecuteTest"
+            }
+        ]
+    },
     "scripts": {
         "vscode:prepublish": "npm run compile",
         "compile": "tsc -p ./",
