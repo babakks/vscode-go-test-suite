@@ -402,10 +402,10 @@ export class TestProvider implements vscode.Disposable {
                 stderr: '',
             };
             cp.stdout.on('data', (data) => {
-                result.stdout += data.toString();
+                result.stdout += (data.toString() as string).replace(/\r?\n/g, '\r\n');
             });
             cp.stderr.on('data', (data) => {
-                result.stderr += data.toString();
+                result.stderr += (data.toString() as string).replace(/\r?\n/g, '\r\n');;
             });
             cp.on('close', (code) => {
                 result.code = code;
