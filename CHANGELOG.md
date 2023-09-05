@@ -1,5 +1,9 @@
 # Change Log
 
+## [0.0.6]
+
+- Fix cluttered stdout/stderr stream of test runs when debugging.
+
 ## [0.0.5]
 
 - Add Code Lens commands, appearing above test functions.

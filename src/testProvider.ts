@@ -560,7 +560,7 @@ export class TestProvider implements vscode.Disposable {
 
                 const debuggerLog = tryReadFileSync(logFile.fsPath);
                 if (debuggerLog) {
-                    this._log(debuggerLog, run);
+                    this._log(debuggerLog.replace(/\r?\n/g, '\r\n'), run);
                 }
 
                 listener2.dispose();
