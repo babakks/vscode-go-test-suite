@@ -414,8 +414,8 @@ export class TestProvider implements vscode.Disposable {
             return;
         }
 
-        const cmd = this.adapter.getRunCommand(data, test.uri?.path);
-        const testDirectory = dirname(test.uri.path);
+        const cmd = this.adapter.getRunCommand(data, test.uri.fsPath);
+        const testDirectory = dirname(test.uri.fsPath);
         const command = cmd.command || execution.binPath;
         const args = cmd.args || ['test'];
 
@@ -485,8 +485,8 @@ export class TestProvider implements vscode.Disposable {
         });
         this._disposables.push(trackerListener);
 
-        const testDirectory = dirname(test.uri.path);
-        const cmd = this.adapter.getDebugCommand(data, test.uri.path);
+        const testDirectory = dirname(test.uri.fsPath);
+        const cmd = this.adapter.getDebugCommand(data, test.uri.fsPath);
         const program = cmd.program || testDirectory;
         const args = cmd.args || [];
 
