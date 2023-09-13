@@ -20,10 +20,12 @@ export function activate(context: vscode.ExtensionContext) {
     const qtsuite = setupQtsuiteTestProvider(context, _reporter);
     context.subscriptions.push(qtsuite.controller, qtsuite.output, qtsuite.provider);
 
-    vscode.languages.registerCodeLensProvider(
-        { language: 'go', pattern: '/**/*_test.go' },
-        new ExecuteTestCodeLensProvider([gocheck.provider, qtsuite.provider]),
-    ),
+    context.subscriptions.push(
+        vscode.languages.registerCodeLensProvider(
+            { language: 'go', pattern: '/**/*_test.go' },
+            new ExecuteTestCodeLensProvider([gocheck.provider, qtsuite.provider]),
+        ),
+    );
 
     context.subscriptions.push(...registerCommands());
 
