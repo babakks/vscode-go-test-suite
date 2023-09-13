@@ -1,5 +1,10 @@
 # Change Log
 
+## [0.0.7]
+
+- Fix issues with paths on Windows ([#4](https://github.com/babakks/vscode-go-test-suite/issues/4) thanks to [SpruceMarcy](https://github.com/SpruceMarcy)).
+- Enable Go-debugger `logDest` option only on Linux or Mac ([#4](https://github.com/babakks/vscode-go-test-suite/issues/4) thanks to [SpruceMarcy](https://github.com/SpruceMarcy)).
+
 ## [0.0.6]
 
 - Fix cluttered stdout/stderr stream of test runs when debugging.
@@ -13,16 +18,16 @@
 
 ## [0.0.4]
 
-- (gocheck) Fix issue with filtering exact test names
+- (gocheck) Fix issue with filtering exact test names.
 
 ## [0.0.3]
 
-- Add basic telemetry
+- Add basic telemetry.
 
 ## [0.0.2]
 
-- Add support for `quicktest` and `qtsuite`
+- Add support for `quicktest` and `qtsuite`.
 
 ## [0.0.1]
 
-- Add support for `go-check`
+- Add support for `go-check`.
