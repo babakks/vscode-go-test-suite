@@ -1,15 +1,16 @@
+import TelemetryReporter from '@vscode/extension-telemetry';
 import { spawn } from 'child_process';
 import { randomUUID } from 'crypto';
+import { readFileSync } from 'fs';
+import { platform } from 'os';
 import { basename, dirname, posix } from 'path';
 import { TextDecoder } from 'util';
 import * as vscode from 'vscode';
 import { ExtensionAPI as GoExtensionAPI } from './go';
 import { GoParser, TestFunction } from './goParser';
-import assert = require('assert');
 import { filterChildren, firstChild, traceChildren, tryReadFileSync } from './util';
-import { readFileSync } from 'fs';
+import assert = require('assert');
 import path = require('path');
-import TelemetryReporter from '@vscode/extension-telemetry';
 
 export interface TestLibraryAdapter {
     discoverTestFunctions(content: string, path: string): TestFunction[];
@@ -514,7 +515,13 @@ export class TestProvider implements vscode.Disposable {
                 program,
                 args,
                 showLog: true,
-                logDest: logFile.fsPath,
+                /**
+                 * As of vscode-go extension docs, the `logDest` option is only available on Linux or Mac.
+                 *
+                 * See "logDest" description in:
+                 *   https://github.com/golang/vscode-go/blob/d9015c19ed5be58bb51f3c53b651fe2468540086/docs/debugging.md#configuration
+                 */
+                ...(['darwin', 'linux'].includes(platform()) ? { logDest: logFile.fsPath } : {}),
             },
         );
 
