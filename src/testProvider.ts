@@ -663,10 +663,10 @@ export class QtsuiteTestLibraryAdapter implements TestLibraryAdapter {
     }
 
     getRunCommand(data: TestFunction, path: string): { command?: string | undefined; args?: string[] | undefined; } {
-        return { args: ['test', '-run', `.*/${data.functionName}`] };
+        return { args: ['test', '-run', `.*/${data.functionName}$`] };
     }
 
     getDebugCommand(data: TestFunction, path: string): { program?: string | undefined; args?: string[] | undefined; } {
-        return { args: ['-test.run', `.*/${data.functionName}`] };
+        return { args: ['-test.run', `.*/${data.functionName}$`] };
     }
 }
