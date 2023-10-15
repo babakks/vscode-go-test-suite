@@ -1,5 +1,9 @@
 # Change Log
 
+## [0.0.8]
+
+- Fix bug in not releasing allocated resources.
+
 ## [0.0.7]
 
 - Fix issues with paths on Windows ([#4](https://github.com/babakks/vscode-go-test-suite/issues/4) thanks to [SpruceMarcy](https://github.com/SpruceMarcy)).
