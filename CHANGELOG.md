@@ -1,5 +1,9 @@
 # Change Log
 
+## [0.0.9]
+
+- Fix `qtsuite` run/debug command args.
+
 ## [0.0.8]
 
 - Fix bug in not releasing allocated resources.
