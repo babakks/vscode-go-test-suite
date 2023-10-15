@@ -112,7 +112,7 @@ export class TestProvider implements vscode.Disposable {
     }
 
     dispose() {
-        this._disposables.forEach(x => x.dispose);
+        this._disposables.forEach(x => x.dispose());
     }
 
     private async _go() {
