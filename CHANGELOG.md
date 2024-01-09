@@ -1,5 +1,9 @@
 # Change Log
 
+## [0.0.10]
+
+- Apply environment variables set by `go.testEnvVar` configuration parameter.
+
 ## [0.0.9]
 
 - Fix `qtsuite` run/debug command args.
