@@ -134,7 +134,10 @@ export class TestProvider implements vscode.Disposable {
     private _goTestEnvVars(): NodeJS.ProcessEnv {
         const config = vscode.workspace.getConfiguration('go');
         const value = config.get<NodeJS.ProcessEnv>('testEnvVars');
-        return value ?? {};
+        if (typeof value === 'object' && !Array.isArray(value)) {
+            return value;
+        }
+        return {};
     }
 
     getTests(): vscode.TestItem[] {
