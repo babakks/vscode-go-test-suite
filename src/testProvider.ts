@@ -131,6 +131,12 @@ export class TestProvider implements vscode.Disposable {
         return this._goExtension;
     }
 
+    private _goTestEnvVars(): NodeJS.ProcessEnv {
+        const config = vscode.workspace.getConfiguration('go');
+        const value = config.get<NodeJS.ProcessEnv>('testEnvVars');
+        return value ?? {};
+    }
+
     getTests(): vscode.TestItem[] {
         const result: vscode.TestItem[] = [];
         const stack: vscode.TestItem[] = [];
@@ -419,6 +425,7 @@ export class TestProvider implements vscode.Disposable {
         const testDirectory = dirname(test.uri.fsPath);
         const command = cmd.command || execution.binPath;
         const args = cmd.args || ['test'];
+        const env = { ...process.env, ...execution.env as NodeJS.ProcessEnv ?? {}, ...this._goTestEnvVars() };
 
         type ProcessResult = { code: number | null; stdout: string; stderr: string; };
         test.busy = true;
@@ -427,7 +434,7 @@ export class TestProvider implements vscode.Disposable {
             assert(test.uri);
             const cp = spawn(command, args, {
                 cwd: testDirectory,
-                env: execution.env as NodeJS.ProcessEnv || undefined,
+                env,
             });
             const result: ProcessResult = {
                 code: 0,
@@ -490,6 +497,7 @@ export class TestProvider implements vscode.Disposable {
         const cmd = this.adapter.getDebugCommand(data, test.uri.fsPath);
         const program = cmd.program || testDirectory;
         const args = cmd.args || [];
+        const env = { ...process.env, ...execution.env as NodeJS.ProcessEnv ?? {}, ...this._goTestEnvVars() };
 
         let sessionStartSignal: (value: vscode.DebugSession) => void;
         const sessionStartPromise = new Promise<vscode.DebugSession>(resolve => { sessionStartSignal = resolve; });
@@ -511,7 +519,7 @@ export class TestProvider implements vscode.Disposable {
                 mode: 'test',
                 name: `Debug test ${test.id}`,
                 cwd: testDirectory,
-                env: execution?.env,
+                env,
                 program,
                 args,
                 showLog: true,
