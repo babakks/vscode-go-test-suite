@@ -2,7 +2,7 @@
     "name": "vscode-go-test-suite",
     "displayName": "Go Test Suite Support",
     "description": "VS Code extension to click and run Go test functions written in third-party library formats",
-    "version": "0.0.10",
+    "version": "0.0.11",
     "publisher": "babakks",
     "repository": {
         "type": "git",
