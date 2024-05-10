@@ -36,7 +36,7 @@ const _IMPORT_SINGLE_LINE_REGEXP = /^import (?:(.*?) )?"(.*?)"\r?$/;
 const _IMPORT_MULTI_LINE_START_REGEXP = /^import \(\r?$/;
 const _IMPORT_MULTI_LINE_END_REGEXP = /^\)\r?$/;
 const _IMPORT_MULTI_LINE_ENTRY_REGEXP = /^\s*(?:(.*?) )?"(.*?)"\r?$/;
-const _SUITE_TEST_FUNCTION_REGEXP = /^func \(.*? \*?(.*?)\) (Test.*?)\(.*? \*?(?:(.*?)\.)?(.*?)\) \{/;
+const _SUITE_TEST_FUNCTION_REGEXP = /^func \((?:.*? +)?\*?(.*?)\) (Test.*?)\(.*? \*?(?:(.*?)\.)?(.*?)\) \{/;
 
 const _GOCHECK_MODULE_NAME = 'gopkg.in/check.v1';
 const _GOCHECK_PACKAGE_NAME = 'check';
@@ -141,53 +141,90 @@ export class GoParser {
         const result: TestFunction[] = [];
         for (let n = start; n < ls.length; n++) {
             const line = ls[n];
-            const match = _SUITE_TEST_FUNCTION_REGEXP.exec(line);
-            if (match) {
-                const argTypeModule = match[3];
-                if (!argTypeModule) {
-                    continue;
-                }
-
-                const importsWithSameAlias = imports.filter(x => x.alias && x.alias === argTypeModule);
-                if (importsWithSameAlias.length > 1) {
-                    // This shouldn't happen with a valid .go file.
-                    return [];
-                }
-
-                let argType: TestFunction['argType'];
-                if (!importsWithSameAlias.length) {
-                    switch (argTypeModule) {
-                        case _GOCHECK_PACKAGE_NAME:
-                            if (!imports.some(x => x.moduleName === _GOCHECK_MODULE_NAME)) {
-                                continue;
-                            }
-                            argType = { moduleName: _GOCHECK_MODULE_NAME, typeName: match[4] };
-                            break;
-                        case _QUICKTEST_PACKAGE_NAME:
-                            if (!imports.some(x => x.moduleName === _QUICKTEST_MODULE_NAME)) {
-                                continue;
-                            }
-                            argType = { moduleName: _QUICKTEST_MODULE_NAME, typeName: match[4] };
-                            break;
-                        default:
-                            // Unknown module.
-                            continue;
-                    }
-                } else {
-                    argType = { moduleName: importsWithSameAlias[0]!.moduleName, typeName: match[4] };
-                }
-                result.push({
-                    kind: argType.moduleName === _GOCHECK_MODULE_NAME ? 'gocheck' :
-                        argType.moduleName === _QUICKTEST_MODULE_NAME ? 'quicktest' :
-                            undefined,
-                    receiverType: match[1],
-                    functionName: match[2],
-                    argType,
-                    lineNumber: n,
-                    range: [n, match.index, n, match.index + match[0].length]
-                });
+            const parsed = parseSuiteTestFunction(line);
+            if (!parsed || !parsed.argTypeModule) {
+                continue;
             }
+
+            const importsWithSameAlias = imports.filter(x => x.alias && x.alias === parsed.argTypeModule);
+            if (importsWithSameAlias.length > 1) {
+                // This shouldn't happen with a valid .go file.
+                return [];
+            }
+
+            let argType: TestFunction['argType'];
+            if (!importsWithSameAlias.length) {
+                switch (parsed.argTypeModule) {
+                    case _GOCHECK_PACKAGE_NAME:
+                        if (!imports.some(x => x.moduleName === _GOCHECK_MODULE_NAME)) {
+                            continue;
+                        }
+                        argType = { moduleName: _GOCHECK_MODULE_NAME, typeName: parsed.argTypeName };
+                        break;
+                    case _QUICKTEST_PACKAGE_NAME:
+                        if (!imports.some(x => x.moduleName === _QUICKTEST_MODULE_NAME)) {
+                            continue;
+                        }
+                        argType = { moduleName: _QUICKTEST_MODULE_NAME, typeName: parsed.argTypeName };
+                        break;
+                    default:
+                        // Unknown module.
+                        continue;
+                }
+            } else {
+                argType = { moduleName: importsWithSameAlias[0]!.moduleName, typeName: parsed.argTypeName };
+            }
+            result.push({
+                kind: argType.moduleName === _GOCHECK_MODULE_NAME ? 'gocheck' :
+                    argType.moduleName === _QUICKTEST_MODULE_NAME ? 'quicktest' :
+                        undefined,
+                receiverType: parsed.receiverType,
+                functionName: parsed.functionName,
+                argType,
+                lineNumber: n,
+                range: [n, parsed.index, n, parsed.index + parsed.entireMatch.length]
+            });
         }
         return result;
     }
+}
+
+export interface ParsedTestSuiteFunction {
+    index: number;
+    entireMatch: string;
+
+    /**
+     * For example, "SomeSuite" in "func (s *SomeSuite) TestSomething(c *gocheck.C)"
+     */
+    receiverType: string;
+
+    /**
+     * For example, "TestSomething" in "func (s *SomeSuite) TestSomething(c *gocheck.C)"
+     */
+    functionName: string;
+
+    /**
+     * For example, "gocheck" in "func (s *SomeSuite) TestSomething(c *gocheck.C)"
+     */
+    argTypeModule: string;
+
+    /**
+     * For example, "C" in "func (s *SomeSuite) TestSomething(c *gocheck.C)"
+     */
+    argTypeName: string;
+}
+
+export function parseSuiteTestFunction(line: string): ParsedTestSuiteFunction | undefined {
+    const match = _SUITE_TEST_FUNCTION_REGEXP.exec(line);
+    if (!match) {
+        return undefined;
+    }
+    return {
+        index: match.index,
+        entireMatch: match[0],
+        receiverType: match[1],
+        functionName: match[2],
+        argTypeModule: match[3],
+        argTypeName: match[4],
+    };
 }
