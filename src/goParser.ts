@@ -36,7 +36,7 @@ const _IMPORT_SINGLE_LINE_REGEXP = /^import (?:(.*?) )?"(.*?)"\r?$/;
 const _IMPORT_MULTI_LINE_START_REGEXP = /^import \(\r?$/;
 const _IMPORT_MULTI_LINE_END_REGEXP = /^\)\r?$/;
 const _IMPORT_MULTI_LINE_ENTRY_REGEXP = /^\s*(?:(.*?) )?"(.*?)"\r?$/;
-const _SUITE_TEST_FUNCTION_REGEXP = /^func \(.*? \*?(.*?)\) (Test.*?)\(.*? \*?(?:(.*?)\.)?(.*?)\) \{/;
+const _SUITE_TEST_FUNCTION_REGEXP = /^func \((?:.*? +)?\*?(.*?)\) (Test.*?)\(.*? \*?(?:(.*?)\.)?(.*?)\) \{/;
 
 const _GOCHECK_MODULE_NAME = 'gopkg.in/check.v1';
 const _GOCHECK_PACKAGE_NAME = 'check';
