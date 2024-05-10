@@ -191,3 +191,43 @@ export class GoParser {
         return result;
     }
 }
+
+export interface ParsedTestSuiteFunction {
+    index: number;
+    entireMatch: string;
+
+    /**
+     * For example, "SomeSuite" in "func (s *SomeSuite) TestSomething(c *gocheck.C)"
+     */
+    receiverType: string;
+
+    /**
+     * For example, "TestSomething" in "func (s *SomeSuite) TestSomething(c *gocheck.C)"
+     */
+    functionName: string;
+
+    /**
+     * For example, "gocheck" in "func (s *SomeSuite) TestSomething(c *gocheck.C)"
+     */
+    argTypeModule: string;
+
+    /**
+     * For example, "C" in "func (s *SomeSuite) TestSomething(c *gocheck.C)"
+     */
+    argTypeName: string;
+}
+
+export function parseSuiteTestFunction(line: string): ParsedTestSuiteFunction | undefined {
+    const match = _SUITE_TEST_FUNCTION_REGEXP.exec(line);
+    if (!match) {
+        return undefined;
+    }
+    return {
+        index: match.index,
+        entireMatch: match[0],
+        receiverType: match[1],
+        functionName: match[2],
+        argTypeModule: match[3],
+        argTypeName: match[4],
+    };
+}
