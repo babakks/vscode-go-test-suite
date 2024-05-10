@@ -1,7 +1,77 @@
 import { suite, test } from 'mocha';
 import * as assert from 'assert';
 
-import { GoParser, Import, PackageInfo, TestFunction } from '../../goParser';
+import { GoParser, Import, PackageInfo, TestFunction, parseSuiteTestFunction, ParsedTestSuiteFunction } from '../../goParser';
+
+suite('parseSuiteTestFunction', function () {
+
+    type Case = {
+        name: string;
+        line: string;
+        expected: ReturnType<typeof parseSuiteTestFunction>;
+    };
+    const cases: Case[] = [
+        {
+            name: "invalid",
+            line: "func TestSomething(x *y.Z) {",
+            expected: undefined,
+        },
+        {
+            name: "ordinary, pointer receiver, pointer argument",
+            line: "func (s *someSuite) TestSomething(x *y.Z) {",
+            expected: {
+                index: 0,
+                entireMatch: "func (s *someSuite) TestSomething(x *y.Z) {",
+                receiverType: "someSuite",
+                functionName: "TestSomething",
+                argTypeModule: "y",
+                argTypeName: "Z",
+            },
+        },
+        {
+            name: "ordinary, value receiver, value argument",
+            line: "func (s someSuite) TestSomething(x y.Z) {",
+            expected: {
+                index: 0,
+                entireMatch: "func (s someSuite) TestSomething(x y.Z) {",
+                receiverType: "someSuite",
+                functionName: "TestSomething",
+                argTypeModule: "y",
+                argTypeName: "Z",
+            },
+        },
+        {
+            name: "receiver variable omitted, pointer receiver",
+            line: "func (*someSuite) TestSomething(x *y.Z) {",
+            expected: {
+                index: 0,
+                entireMatch: "func (*someSuite) TestSomething(x *y.Z) {",
+                receiverType: "someSuite",
+                functionName: "TestSomething",
+                argTypeModule: "y",
+                argTypeName: "Z",
+            },
+        },
+        {
+            name: "receiver variable omitted, value receiver",
+            line: "func (someSuite) TestSomething(x *y.Z) {",
+            expected: {
+                index: 0,
+                entireMatch: "func (someSuite) TestSomething(x *y.Z) {",
+                receiverType: "someSuite",
+                functionName: "TestSomething",
+                argTypeModule: "y",
+                argTypeName: "Z",
+            },
+        },
+    ];
+
+    for (const x of cases) {
+        test(x.name, function () {
+            assert.deepStrictEqual(parseSuiteTestFunction(x.line), x.expected);
+        });
+    }
+});
 
 suite('GoParser', () => {
     suite('parsePackageName', function () {
