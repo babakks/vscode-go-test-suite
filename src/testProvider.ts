@@ -7,18 +7,28 @@ import { basename, dirname, posix } from 'path';
 import { TextDecoder } from 'util';
 import * as vscode from 'vscode';
 import { ExtensionAPI as GoExtensionAPI } from './go';
-import { GoParser, TestFunction } from './goParser';
+import { GoParser, type TestFunction, type TestSuite } from './goParser';
 import { filterChildren, firstChild, traceChildren, tryReadFileSync } from './util';
 import assert = require('assert');
 import path = require('path');
 
 export interface TestLibraryAdapter {
     discoverTestFunctions(content: string, path: string): TestFunction[];
-    getRunCommand(data: TestFunction, path: string): { command?: string; args?: string[] };
-    getDebugCommand(data: TestFunction, path: string): { program?: string; args?: string[] };
+    getRunCommand(data: TestFunctionData | TestSuiteData, path: string): { command?: string; args?: string[] };
+    getDebugCommand(data: TestFunctionData | TestSuiteData, path: string): { program?: string; args?: string[] };
 }
 
-type TestData = TestFunction | 'file' | 'package';
+interface TestSuiteData {
+    kind: 'suite';
+    data: TestSuite;
+}
+
+interface TestFunctionData {
+    kind: 'function';
+    data: TestFunction;
+}
+
+type TestData = TestFunctionData | TestSuiteData | 'file' | 'package';
 
 const _FAILED_TO_RETRIEVE_GO_EXECUTION_PARAMS_ERROR_MESSAGE = 'error: cannot retrieve `go` execution command from Go extension';
 
@@ -42,7 +52,8 @@ export type TelemetrySetup = {
  *
  * - Package (e.g., `my_package`)
  *   - File (e.g., `normal_test.go`)
- *     - Function (e.g., `TestSomething`)
+ *     - Suite (e.g., `SomeSuite`)
+ *       - Function (e.g., `TestSomething`)
  */
 export class TestProvider implements vscode.Disposable {
     private readonly _disposables: vscode.Disposable[] = [];
@@ -163,6 +174,13 @@ export class TestProvider implements vscode.Disposable {
         return firstChild(this.controller.items, (x: vscode.TestItem) => x.uri?.path === uri.path && this._map.get(x) === 'file');
     }
 
+    private _findSuiteEntriesWithNoChildren(): vscode.TestItem[] {
+        return filterChildren(this.controller.items, (x: vscode.TestItem) => {
+            const item = this._map.get(x);
+            return !item ? false : ((item as TestSuiteData).kind === 'suite' ? !x.children.size : false);
+        });
+    }
+
     private _findFileEntriesWithNoChildren(): vscode.TestItem[] {
         return filterChildren(this.controller.items, (x: vscode.TestItem) => this._map.get(x) === 'file' && !x.children.size);
     }
@@ -172,6 +190,12 @@ export class TestProvider implements vscode.Disposable {
     }
 
     private _purgeEntriesWithNoChildren() {
+        for (const x of this._findSuiteEntriesWithNoChildren()) {
+            assert(x.parent);
+            this._map.delete(x);
+            x.parent.children.delete(x.id);
+        }
+
         for (const x of this._findFileEntriesWithNoChildren()) {
             assert(x.parent);
             this._map.delete(x);
@@ -263,11 +287,24 @@ export class TestProvider implements vscode.Disposable {
         }
 
         for (const t of discovered) {
-            const id = t.receiverType ? `${t.receiverType}.${t.functionName}` : t.functionName;
-            const item = this.controller.createTestItem(id, id, uri);
+            if (t.receiverType === undefined) {
+                continue;
+            }
+
+            const suiteId = t.receiverType;
+            let suiteItem = fileItem.children.get(suiteId);
+            if (!suiteItem) {
+                suiteItem = this.controller.createTestItem(suiteId, suiteId, uri);
+                fileItem.children.add(suiteItem);
+                this._map.set(suiteItem, { kind: 'suite', data: { name: t.receiverType } });
+                updated = true;
+            }
+
+            const id = `${t.receiverType ?? ''}.${t.functionName}`;
+            const item = this.controller.createTestItem(id, t.functionName, uri);
             item.range = new vscode.Range(...t.range);
-            fileItem.children.add(item);
-            this._map.set(item, t);
+            suiteItem.children.add(item);
+            this._map.set(item, { kind: 'function', data: t });
             updated = true;
         }
 
@@ -350,7 +387,7 @@ export class TestProvider implements vscode.Disposable {
     }
 
     private async _startTestRun(isDebug: boolean, request: vscode.TestRunRequest, token: vscode.CancellationToken) {
-        const queue: { test: vscode.TestItem; data: TestFunction }[] = [];
+        const queue: { test: vscode.TestItem; data: TestFunctionData | TestSuiteData }[] = [];
         const run = this.controller.createTestRun(request);
 
         function gatherTestItems(collection: vscode.TestItemCollection) {
@@ -386,7 +423,12 @@ export class TestProvider implements vscode.Disposable {
                     this._log(`Skipped ${test.id}\r\n`, run);
                 } else {
                     run.started(test);
-                    this._log(`Running ${test.id}\r\n`, run);
+                    if (data.kind === 'suite') {
+                        this._log(`Running suite ${test.id}\r\n`, run);
+                    } else {
+                        this._log(`Running test ${test.id}\r\n`, run);
+                    }
+
                     if (isDebug) {
                         this.telemetry.reporter.sendTelemetryEvent(this.telemetry.events.debug);
                         await this._debug(run, test, data, token);
@@ -394,7 +436,12 @@ export class TestProvider implements vscode.Disposable {
                         this.telemetry.reporter.sendTelemetryEvent(this.telemetry.events.run);
                         await this._run(run, test, data, token);
                     }
-                    this._log(`Completed ${test.id}\r\n`, run);
+
+                    if (data.kind === 'suite') {
+                        this._log(`Completed suite ${test.id}\r\n`, run);
+                    } else {
+                        this._log(`Completed test ${test.id}\r\n`, run);
+                    }
                 }
             }
 
@@ -414,7 +461,7 @@ export class TestProvider implements vscode.Disposable {
         await runTestQueue();
     };
 
-    private async _run(run: vscode.TestRun, test: vscode.TestItem, data: TestFunction, token: vscode.CancellationToken) {
+    private async _run(run: vscode.TestRun, test: vscode.TestItem, data: TestFunctionData | TestSuiteData, token: vscode.CancellationToken) {
         assert(test.uri);
 
         const execution = (await this._go()).settings.getExecutionCommand('go');
@@ -461,6 +508,9 @@ export class TestProvider implements vscode.Disposable {
                 this._log(result.stdout, run);
             }
             run.passed(test, Date.now() - start);
+            for (const [_, item] of test.children) {
+                run.passed(item);
+            }
         } else {
             this._log(`test failed (exit code: ${result.code}): ${test.id}`, run);
             if (result.stdout) {
@@ -470,10 +520,16 @@ export class TestProvider implements vscode.Disposable {
                 this._log(result.stderr, run);
             }
             run.failed(test, new vscode.TestMessage(`${result.stdout}\r\n${result.stderr}`), Date.now() - start);
+
+            // TODO If it's suite test, we need to parse the output and mark the failed/passed test children accordingly.
+            // Currently, we just mark them as skipped to drop any "passed" states.
+            for (const [_, item] of test.children) {
+                run.skipped(item);
+            }
         }
     }
 
-    private async _debug(run: vscode.TestRun, test: vscode.TestItem, data: TestFunction, token: vscode.CancellationToken) {
+    private async _debug(run: vscode.TestRun, test: vscode.TestItem, data: TestFunctionData | TestSuiteData, token: vscode.CancellationToken) {
         assert(test.uri);
 
         const execution = (await this._go()).settings.getExecutionCommand('go');
@@ -552,8 +608,20 @@ export class TestProvider implements vscode.Disposable {
                     const stderr = tracker.stderr.join('\r\n');
                     const others = tracker.others.join('\r\n');
                     const trail = [stdout, stderr, others].join('\r\n');
-                    const markAsFailed = () => run.failed(test, new vscode.TestMessage(trail));
-                    const markAsPassed = () => run.passed(test);
+                    const markAsFailed = () => {
+                        run.failed(test, new vscode.TestMessage(trail));
+                        // TODO If it's suite test, we need to parse the output and mark the failed/passed test children accordingly.
+                        // Currently, we just mark them as skipped to drop any "passed" states.
+                        for (const [_, item] of test.children) {
+                            run.skipped(item);
+                        }
+                    };
+                    const markAsPassed = () => {
+                        run.passed(test);
+                        for (const [_, item] of test.children) {
+                            run.passed(item);
+                        }
+                    };
                     this._log(trail);
                     if (tracker.error) {
                         markAsFailed();
@@ -657,14 +725,14 @@ export class GocheckTestLibraryAdapter implements TestLibraryAdapter {
         return new GoParser(content).parse()?.testFunctions.filter(x => x.kind === 'gocheck') || [];
     }
 
-    getRunCommand(data: TestFunction, path: string): { command?: string | undefined; args?: string[] | undefined; } {
-        assert(data.receiverType);
-        return { args: ['test', '-check.f', `^${data.receiverType}.${data.functionName}$`] };
+    getRunCommand(data: TestFunctionData | TestSuiteData, path: string): { command?: string | undefined; args?: string[] | undefined; } {
+        return data.kind === 'suite' ? { args: ['test', '-check.f', `^${data.data.name}$`] }
+            : { args: ['test', '-check.f', `^${data.data.receiverType}.${data.data.functionName}$`] };
     }
 
-    getDebugCommand(data: TestFunction, path: string): { program?: string | undefined; args?: string[] | undefined; } {
-        assert(data.receiverType);
-        return { args: ['-check.f', `^${data.receiverType}.${data.functionName}$`] };
+    getDebugCommand(data: TestFunctionData | TestSuiteData, path: string): { program?: string | undefined; args?: string[] | undefined; } {
+        return data.kind === 'suite' ? { args: ['-check.f', `^${data.data.name}$`] }
+            : { args: ['-check.f', `^${data.data.receiverType}.${data.data.functionName}$`] };
     }
 }
 
@@ -673,11 +741,13 @@ export class QtsuiteTestLibraryAdapter implements TestLibraryAdapter {
         return new GoParser(content).parse()?.testFunctions.filter(x => x.kind === 'quicktest') || [];
     }
 
-    getRunCommand(data: TestFunction, path: string): { command?: string | undefined; args?: string[] | undefined; } {
-        return { args: ['test', '-run', `.*/${data.functionName}$`] };
+    getRunCommand(data: TestFunctionData | TestSuiteData, path: string): { command?: string | undefined; args?: string[] | undefined; } {
+        return data.kind === 'suite' ? { args: ['test', '-run', `^${data.data.name}$`] }
+            : { args: ['test', '-run', `.*/${data.data.functionName}$`] };
     }
 
-    getDebugCommand(data: TestFunction, path: string): { program?: string | undefined; args?: string[] | undefined; } {
-        return { args: ['-test.run', `.*/${data.functionName}$`] };
+    getDebugCommand(data: TestFunctionData | TestSuiteData, path: string): { program?: string | undefined; args?: string[] | undefined; } {
+        return data.kind === 'suite' ? { args: ['-test.run', `^${data.data.name}$`] }
+            : { args: ['-test.run', `.*/${data.data.functionName}$`] };
     }
 }
