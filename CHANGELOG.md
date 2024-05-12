@@ -1,5 +1,9 @@
 # Change Log
 
+## [0.0.12]
+
+- Support running an entire test suite from the sidebar ([#13](https://github.com/babakks/vscode-go-test-suite/issues/13) thanks to [SimonRichardson](https://github.com/SimonRichardson)).
+
 ## [0.0.11]
 
 - Support test suite functions that omit receiver variable name ([#12](https://github.com/babakks/vscode-go-test-suite/issues/12) thanks to [SimonRichardson](https://github.com/SimonRichardson)).
