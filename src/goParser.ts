@@ -19,6 +19,10 @@ export interface Import {
 
 export type SupportedTestFunctionKinds = 'gocheck' | 'quicktest';
 
+export interface TestSuite {
+    name: string;
+}
+
 export interface TestFunction {
     kind: SupportedTestFunctionKinds | undefined;
     receiverType?: string;
