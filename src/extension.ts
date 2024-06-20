@@ -5,12 +5,12 @@ import { ExecuteTestCodeLensProvider } from './codeLens';
 import { registerCommands } from './command';
 import { GocheckTestLibraryAdapter, QtsuiteTestLibraryAdapter, TelemetrySetup, TestProvider } from './testProvider';
 
-const _TELEMETRY_INSTRUMENTATION_KEY = '52da75ef-7ead-4f50-be55-f5644f9b7f4f';
+const _TELEMETRY_CONNECTION_STRING = 'InstrumentationKey=52da75ef-7ead-4f50-be55-f5644f9b7f4f;IngestionEndpoint=https://eastus-8.in.applicationinsights.azure.com/;LiveEndpoint=https://eastus.livediagnostics.monitor.azure.com/;ApplicationId=20ec7ba9-71fc-446e-a841-80c584d1292c';
 let _reporter: TelemetryReporter;
 
 export function activate(context: vscode.ExtensionContext) {
     context.subscriptions.push(
-        _reporter = new TelemetryReporter(_TELEMETRY_INSTRUMENTATION_KEY)
+        _reporter = new TelemetryReporter(context.extensionMode === vscode.ExtensionMode.Production ? _TELEMETRY_CONNECTION_STRING : '')
     );
     mkdirSync(context.logUri.fsPath, { recursive: true });
 

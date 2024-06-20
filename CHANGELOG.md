@@ -1,5 +1,9 @@
 # Change Log
 
+## [0.0.13]
+
+- Use connection string instead of instrumentation key for telemetry.
+
 ## [0.0.12]
 
 - Support running an entire test suite from the sidebar ([#13](https://github.com/babakks/vscode-go-test-suite/issues/13) thanks to [SimonRichardson](https://github.com/SimonRichardson)).
