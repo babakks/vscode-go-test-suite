@@ -1,9 +1,8 @@
 import TelemetryReporter from '@vscode/extension-telemetry';
-import { spawn } from 'child_process';
+import { spawn, type ChildProcessWithoutNullStreams } from 'child_process';
 import { randomUUID } from 'crypto';
-import { readFileSync } from 'fs';
 import { platform } from 'os';
-import { basename, dirname, posix } from 'path';
+import { basename, dirname } from 'path';
 import { TextDecoder } from 'util';
 import * as vscode from 'vscode';
 import { ExtensionAPI as GoExtensionAPI } from './go';
@@ -471,6 +470,14 @@ export class TestProvider implements vscode.Disposable {
             return;
         }
 
+        let cancel: (value: boolean) => void;
+        const cancellationPromise = new Promise<boolean>(resolve => { cancel = resolve; });
+        const disposables = [
+            run.token.onCancellationRequested(e => cancel(true)),
+            token.onCancellationRequested(e => cancel(true)),
+        ];
+        const disposeCancellationHooks = () => disposables.forEach(x => x.dispose());
+
         const cmd = this.adapter.getRunCommand(data, test.uri.fsPath);
         const testDirectory = dirname(test.uri.fsPath);
         const command = cmd.command || execution.binPath;
@@ -480,9 +487,10 @@ export class TestProvider implements vscode.Disposable {
         type ProcessResult = { code: number | null; stdout: string; stderr: string; };
         test.busy = true;
         const start = Date.now();
-        const result = await new Promise<ProcessResult>(resolve => {
+        let testProcess: ChildProcessWithoutNullStreams | undefined;
+        const testProcessPromise = new Promise<ProcessResult>(resolve => {
             assert(test.uri);
-            const cp = spawn(command, args, {
+            testProcess = spawn(command, args, {
                 cwd: testDirectory,
                 env,
             });
@@ -491,18 +499,31 @@ export class TestProvider implements vscode.Disposable {
                 stdout: '',
                 stderr: '',
             };
-            cp.stdout.on('data', (data) => {
+            testProcess.stdout.on('data', (data) => {
                 result.stdout += (data.toString() as string).replace(/\r?\n/g, '\r\n');
             });
-            cp.stderr.on('data', (data) => {
+            testProcess.stderr.on('data', (data) => {
                 result.stderr += (data.toString() as string).replace(/\r?\n/g, '\r\n');;
             });
-            cp.on('close', (code) => {
+            testProcess.on('close', (code) => {
                 result.code = code;
+                testProcess = undefined;
                 resolve(result);
             });
         });
+
+        const result = await Promise.race([testProcessPromise, cancellationPromise]);
         test.busy = false;
+        disposeCancellationHooks();
+
+        if (typeof result === 'boolean') {
+            // User has cancelled the run.
+            testProcess?.kill();
+            run.skipped(test);
+            run.errored(test, new vscode.TestMessage('Cancelled'), Date.now() - start);
+            return;
+        }
+
         if (result.code === 0) {
             if (result.stdout) {
                 this._log(result.stdout, run);
