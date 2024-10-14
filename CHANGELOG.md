@@ -3,6 +3,7 @@
 ## [0.0.14]
 
 - Allow cancellation of test runs ([#17](https://github.com/babakks/vscode-go-test-suite/issues/17) thanks to [SimonRichardson](https://github.com/SimonRichardson))
+- Add code lens to copy test function launch configuration.
 
 ## [0.0.13]
 
