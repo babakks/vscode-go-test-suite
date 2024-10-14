@@ -2,7 +2,7 @@ import TelemetryReporter from '@vscode/extension-telemetry';
 import { mkdirSync } from 'fs';
 import * as vscode from 'vscode';
 import { ExecuteTestCodeLensProvider } from './codeLens';
-import { registerCommands } from './command';
+import { CommandsProvider, registerCommands } from './command';
 import { GocheckTestLibraryAdapter, QtsuiteTestLibraryAdapter, TelemetrySetup, TestProvider } from './testProvider';
 
 const _TELEMETRY_CONNECTION_STRING = 'InstrumentationKey=52da75ef-7ead-4f50-be55-f5644f9b7f4f;IngestionEndpoint=https://eastus-8.in.applicationinsights.azure.com/;LiveEndpoint=https://eastus.livediagnostics.monitor.azure.com/;ApplicationId=20ec7ba9-71fc-446e-a841-80c584d1292c';
@@ -27,7 +27,8 @@ export function activate(context: vscode.ExtensionContext) {
         ),
     );
 
-    context.subscriptions.push(...registerCommands());
+    const cmd = new CommandsProvider([gocheck.provider, qtsuite.provider]);
+    context.subscriptions.push(...registerCommands(cmd));
 
     vscode.commands.executeCommand('testing.refreshTests');
 }

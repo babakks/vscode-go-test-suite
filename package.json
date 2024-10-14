@@ -37,7 +37,13 @@
         "commands": [
             {
                 "command": "vscode-go-test-suite._moveCursorAndExecuteTest",
-                "title": "_moveCursorAndExecuteTest"
+                "title": "_moveCursorAndExecuteTest",
+                "enablement": "false"
+            },
+            {
+                "command": "vscode-go-test-suite._showLaunchConfiguration",
+                "title": "_showLaunchConfiguration",
+                "enablement": "false"
             }
         ]
     },
