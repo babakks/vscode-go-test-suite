@@ -1,6 +1,11 @@
 import * as vscode from 'vscode';
-import { COMMAND_MOVE_CURSOR_AND_EXEC_TEST, moveCursorAndExecuteTest } from './command';
-import { TestProvider } from './testProvider';
+import {
+    COMMAND_MOVE_CURSOR_AND_EXEC_TEST,
+    COMMAND_SHOW_LAUNCH_CONFIGURATION,
+    type MoveCursorAndExecuteTestParameters,
+    type ShowLaunchConfigurationParameters
+} from './command';
+import { hasLaunchConfiguration, TestProvider } from './testProvider';
 
 export class ExecuteTestCodeLensProvider implements vscode.CodeLensProvider<vscode.CodeLens>, vscode.Disposable {
     private readonly _disposables: vscode.Disposable[] = [];
@@ -33,18 +38,29 @@ export class ExecuteTestCodeLensProvider implements vscode.CodeLensProvider<vsco
             if (!tests.length) {
                 continue;
             }
-            result.push(...tests.map(x => [
-                new vscode.CodeLens(x.range!, {
-                    title: 'Run Test',
-                    command: COMMAND_MOVE_CURSOR_AND_EXEC_TEST,
-                    arguments: [x, 'run'] satisfies Parameters<typeof moveCursorAndExecuteTest>,
-                }),
-                new vscode.CodeLens(x.range!, {
-                    title: 'Debug Test',
-                    command: COMMAND_MOVE_CURSOR_AND_EXEC_TEST,
-                    arguments: [x, 'debug'] satisfies Parameters<typeof moveCursorAndExecuteTest>,
-                }),
-            ]).flat(1));
+            for (const item of tests) {
+                result.push(
+                    new vscode.CodeLens(item.range!, {
+                        title: "Run",
+                        command: COMMAND_MOVE_CURSOR_AND_EXEC_TEST,
+                        arguments: [item, 'run'] satisfies MoveCursorAndExecuteTestParameters,
+                    }),
+                    new vscode.CodeLens(item.range!, {
+                        title: "Debug",
+                        command: COMMAND_MOVE_CURSOR_AND_EXEC_TEST,
+                        arguments: [item, 'debug'] satisfies MoveCursorAndExecuteTestParameters,
+                    }),
+                );
+
+                const testData = provider.getTestData(item);
+                if (testData && hasLaunchConfiguration(testData)) {
+                    result.push(new vscode.CodeLens(item.range!, {
+                        title: "Launch Configuration",
+                        command: COMMAND_SHOW_LAUNCH_CONFIGURATION,
+                        arguments: [item] satisfies ShowLaunchConfigurationParameters,
+                    }));
+                }
+            }
         }
         return result;
     }

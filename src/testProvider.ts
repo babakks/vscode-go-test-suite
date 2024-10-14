@@ -1,9 +1,8 @@
 import TelemetryReporter from '@vscode/extension-telemetry';
-import { spawn } from 'child_process';
+import { spawn, type ChildProcessWithoutNullStreams } from 'child_process';
 import { randomUUID } from 'crypto';
-import { readFileSync } from 'fs';
 import { platform } from 'os';
-import { basename, dirname, posix } from 'path';
+import { basename, dirname } from 'path';
 import { TextDecoder } from 'util';
 import * as vscode from 'vscode';
 import { ExtensionAPI as GoExtensionAPI } from './go';
@@ -28,7 +27,24 @@ interface TestFunctionData {
     data: TestFunction;
 }
 
-type TestData = TestFunctionData | TestSuiteData | 'file' | 'package';
+export type TestData = TestFunctionData | TestSuiteData | 'file' | 'package';
+
+function isTestFunctionData(v: TestData): v is TestFunctionData {
+    return typeof v === 'object' && 'kind' in v && v.kind === 'function';
+}
+
+function isTestSuiteData(v: TestData): v is TestSuiteData {
+    return typeof v === 'object' && 'kind' in v && v.kind === 'suite';
+}
+
+/**
+ * Determines that a given {@link TestData} instance has a launch configuration
+ * associated with it. This is not the case if the corresponding test data object
+ * points to a file/package.
+ */
+export function hasLaunchConfiguration(v: TestData): boolean {
+    return isTestFunctionData(v) || isTestSuiteData(v);
+}
 
 const _FAILED_TO_RETRIEVE_GO_EXECUTION_PARAMS_ERROR_MESSAGE = 'error: cannot retrieve `go` execution command from Go extension';
 
@@ -142,6 +158,10 @@ export class TestProvider implements vscode.Disposable {
         return this._goExtension;
     }
 
+    private async _getGoExecutionCommand() {
+        return (await this._go()).settings.getExecutionCommand('go');
+    }
+
     private _goTestEnvVars(): NodeJS.ProcessEnv {
         const config = vscode.workspace.getConfiguration('go');
         const value = config.get<NodeJS.ProcessEnv>('testEnvVars');
@@ -168,6 +188,10 @@ export class TestProvider implements vscode.Disposable {
             push(entry.children);
         }
         return result;
+    }
+
+    getTestData(test: vscode.TestItem): TestData | undefined {
+        return this._map.get(test);
     }
 
     private _findFileEntry(uri: vscode.Uri): vscode.TestItem | undefined {
@@ -464,12 +488,20 @@ export class TestProvider implements vscode.Disposable {
     private async _run(run: vscode.TestRun, test: vscode.TestItem, data: TestFunctionData | TestSuiteData, token: vscode.CancellationToken) {
         assert(test.uri);
 
-        const execution = (await this._go()).settings.getExecutionCommand('go');
+        const execution = await this._getGoExecutionCommand();
         if (!execution) {
             this._log(_FAILED_TO_RETRIEVE_GO_EXECUTION_PARAMS_ERROR_MESSAGE, run);
             run.skipped(test);
             return;
         }
+
+        let cancel: (value: boolean) => void;
+        const cancellationPromise = new Promise<boolean>(resolve => { cancel = resolve; });
+        const disposables = [
+            run.token.onCancellationRequested(e => cancel(true)),
+            token.onCancellationRequested(e => cancel(true)),
+        ];
+        const disposeCancellationHooks = () => disposables.forEach(x => x.dispose());
 
         const cmd = this.adapter.getRunCommand(data, test.uri.fsPath);
         const testDirectory = dirname(test.uri.fsPath);
@@ -480,9 +512,10 @@ export class TestProvider implements vscode.Disposable {
         type ProcessResult = { code: number | null; stdout: string; stderr: string; };
         test.busy = true;
         const start = Date.now();
-        const result = await new Promise<ProcessResult>(resolve => {
+        let testProcess: ChildProcessWithoutNullStreams | undefined;
+        const testProcessPromise = new Promise<ProcessResult>(resolve => {
             assert(test.uri);
-            const cp = spawn(command, args, {
+            testProcess = spawn(command, args, {
                 cwd: testDirectory,
                 env,
             });
@@ -491,18 +524,31 @@ export class TestProvider implements vscode.Disposable {
                 stdout: '',
                 stderr: '',
             };
-            cp.stdout.on('data', (data) => {
+            testProcess.stdout.on('data', (data) => {
                 result.stdout += (data.toString() as string).replace(/\r?\n/g, '\r\n');
             });
-            cp.stderr.on('data', (data) => {
+            testProcess.stderr.on('data', (data) => {
                 result.stderr += (data.toString() as string).replace(/\r?\n/g, '\r\n');;
             });
-            cp.on('close', (code) => {
+            testProcess.on('close', (code) => {
                 result.code = code;
+                testProcess = undefined;
                 resolve(result);
             });
         });
+
+        const result = await Promise.race([testProcessPromise, cancellationPromise]);
         test.busy = false;
+        disposeCancellationHooks();
+
+        if (typeof result === 'boolean') {
+            // User has cancelled the run.
+            testProcess?.kill();
+            run.skipped(test);
+            run.errored(test, new vscode.TestMessage('Cancelled'), Date.now() - start);
+            return;
+        }
+
         if (result.code === 0) {
             if (result.stdout) {
                 this._log(result.stdout, run);
@@ -532,13 +578,6 @@ export class TestProvider implements vscode.Disposable {
     private async _debug(run: vscode.TestRun, test: vscode.TestItem, data: TestFunctionData | TestSuiteData, token: vscode.CancellationToken) {
         assert(test.uri);
 
-        const execution = (await this._go()).settings.getExecutionCommand('go');
-        if (!execution) {
-            this._log(_FAILED_TO_RETRIEVE_GO_EXECUTION_PARAMS_ERROR_MESSAGE, run);
-            run.skipped(test);
-            return;
-        }
-
         const goCheckSessionIDKey = 'goTestSessionID' as const;
         const sessionId = randomUUID();
 
@@ -552,12 +591,6 @@ export class TestProvider implements vscode.Disposable {
         });
         this._disposables.push(trackerListener);
 
-        const testDirectory = dirname(test.uri.fsPath);
-        const cmd = this.adapter.getDebugCommand(data, test.uri.fsPath);
-        const program = cmd.program || testDirectory;
-        const args = cmd.args || [];
-        const env = { ...process.env, ...execution.env as NodeJS.ProcessEnv ?? {}, ...this._goTestEnvVars() };
-
         let sessionStartSignal: (value: vscode.DebugSession) => void;
         const sessionStartPromise = new Promise<vscode.DebugSession>(resolve => { sessionStartSignal = resolve; });
         const listener = vscode.debug.onDidStartDebugSession(e => {
@@ -568,19 +601,18 @@ export class TestProvider implements vscode.Disposable {
         });
         this._disposables.push(listener);
 
+        const bareLaunchConfiguration = await this.getDebugLaunchConfiguration(test, data);
+        if (!bareLaunchConfiguration) {
+            run.skipped(test);
+            return;
+        }
+
         const logFile = this._getLogFilePath(sessionId);
         const started = await vscode.debug.startDebugging(
             vscode.workspace.getWorkspaceFolder(test.uri),
             {
+                ...bareLaunchConfiguration,
                 [goCheckSessionIDKey]: sessionId,
-                type: 'go',
-                request: 'launch',
-                mode: 'test',
-                name: `Debug test ${test.id}`,
-                cwd: testDirectory,
-                env,
-                program,
-                args,
                 showLog: true,
                 /**
                  * As of vscode-go extension docs, the `logDest` option is only available on Linux or Mac.
@@ -662,6 +694,37 @@ export class TestProvider implements vscode.Disposable {
         });
         this._disposables.push(cancelListener);
         await sessionStopPromise;
+    }
+
+    async getDebugLaunchConfiguration(test: vscode.TestItem, data: TestData): Promise<vscode.DebugConfiguration | undefined> {
+        assert(test.uri);
+
+        if (!isTestFunctionData(data) && !isTestSuiteData(data)) {
+            return undefined;
+        }
+
+        const execution = await this._getGoExecutionCommand();
+        if (!execution) {
+            this._log(_FAILED_TO_RETRIEVE_GO_EXECUTION_PARAMS_ERROR_MESSAGE);
+            return;
+        }
+
+        const testDirectory = dirname(test.uri.fsPath);
+        const cmd = this.adapter.getDebugCommand(data, test.uri.fsPath);
+        const program = cmd.program || testDirectory;
+        const args = cmd.args || [];
+        const env = { ...execution.env as NodeJS.ProcessEnv ?? {}, ...this._goTestEnvVars() };
+
+        return {
+            type: 'go',
+            request: 'launch',
+            mode: 'test',
+            name: `Debug test ${test.id}`,
+            cwd: testDirectory,
+            env,
+            program,
+            args,
+        };
     }
 
     private _getLogFilePath(name: string): vscode.Uri {
