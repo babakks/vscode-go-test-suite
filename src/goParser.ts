@@ -146,11 +146,11 @@ export class GoParser {
         for (let n = start; n < ls.length; n++) {
             const line = ls[n];
             const parsed = parseSuiteTestFunction(line);
-            if (!parsed || !parsed.argTypeModule) {
+            if (!parsed){
                 continue;
             }
 
-            const importsWithSameAlias = imports.filter(x => x.alias && x.alias === parsed.argTypeModule);
+            const importsWithSameAlias = parsed.argTypeModule ? imports.filter(x => x.alias && x.alias === parsed.argTypeModule) : [];
             if (importsWithSameAlias.length > 1) {
                 // This shouldn't happen with a valid .go file.
                 return [];
@@ -170,6 +170,25 @@ export class GoParser {
                             continue;
                         }
                         argType = { moduleName: _QUICKTEST_MODULE_NAME, typeName: parsed.argTypeName };
+                        break;
+                    case undefined:
+                        /**
+                         * This can be a dot-import; e.g.
+                         *
+                         *   import (
+                         *       . "gopkg.in/check.v1"
+                         *   )
+                         *
+                         * In this case we need to look for a dot-import entry for either quicktest or gocheck. Note
+                         * that since `argTypeName` for both case is `C`, only one of them must be a dot-imported.
+                         */
+                        if (imports.some(x => x.alias === '.' && x.moduleName === _GOCHECK_MODULE_NAME)) {
+                            argType = { moduleName: _GOCHECK_MODULE_NAME, typeName: parsed.argTypeName };
+                        } else if (imports.some(x => x.alias === '.' && x.moduleName === _QUICKTEST_MODULE_NAME)) {
+                            argType = { moduleName: _QUICKTEST_MODULE_NAME, typeName: parsed.argTypeName };
+                        } else {
+                            continue;
+                        }
                         break;
                     default:
                         // Unknown module.
@@ -210,7 +229,7 @@ export interface ParsedTestSuiteFunction {
     /**
      * For example, "gocheck" in "func (s *SomeSuite) TestSomething(c *gocheck.C)"
      */
-    argTypeModule: string;
+    argTypeModule: string | undefined;
 
     /**
      * For example, "C" in "func (s *SomeSuite) TestSomething(c *gocheck.C)"
