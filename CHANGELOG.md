@@ -1,5 +1,9 @@
 # Change Log
 
+## [0.0.16]
+
+- Support Golang dot imports ([#20](https://github.com/babakks/vscode-go-test-suite/issues/20) thanks to [tigarmo](https://github.com/tigarmo))
+
 ## [0.0.14]
 
 - Allow cancellation of test runs ([#17](https://github.com/babakks/vscode-go-test-suite/issues/17) thanks to [SimonRichardson](https://github.com/SimonRichardson))
