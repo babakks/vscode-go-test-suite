@@ -315,6 +315,19 @@ suite('GoParser', () => {
                     }]
                 },
                 {
+                    name: 'should detect `gocheck` suite test function (dot import)',
+                    content: 'func (s *SomeSuite) TestSomething(c *C) {}',
+                    imports: [{ lineNumber: 0, moduleName: 'gopkg.in/check.v1', alias: '.' }],
+                    expected: [{
+                        kind: 'gocheck',
+                        functionName: 'TestSomething',
+                        argType: { moduleName: 'gopkg.in/check.v1', typeName: 'C' },
+                        receiverType: 'SomeSuite',
+                        lineNumber: 0,
+                        range: [0, 0, 0, 41],
+                    }]
+                },
+                {
                     name: 'should detect `quicktest` suite test function (non-aliased import)',
                     content: 'func (s *SomeSuite) TestSomething(c *quicktest.C) {}',
                     imports: [{ lineNumber: 0, moduleName: 'github.com/frankban/quicktest' }],
@@ -338,6 +351,19 @@ suite('GoParser', () => {
                         receiverType: 'SomeSuite',
                         lineNumber: 0,
                         range: [0, 0, 0, 47],
+                    }]
+                },
+                {
+                    name: 'should detect `quicktest` suite test function (dot import)',
+                    content: 'func (s *SomeSuite) TestSomething(c *C) {}',
+                    imports: [{ lineNumber: 0, moduleName: 'github.com/frankban/quicktest', alias: '.' }],
+                    expected: [{
+                        kind: 'quicktest',
+                        functionName: 'TestSomething',
+                        argType: { moduleName: 'github.com/frankban/quicktest', typeName: 'C' },
+                        receiverType: 'SomeSuite',
+                        lineNumber: 0,
+                        range: [0, 0, 0, 41],
                     }]
                 },
                 {
@@ -375,6 +401,58 @@ suite('GoParser', () => {
                             receiverType: 'SomeSuiteB',
                             lineNumber: 1,
                             range: [1, 0, 1, 44],
+                        }
+                    ]
+                },
+                {
+                    name: 'should detect suite test function correctly if one module is dot imported (`gocheck`)',
+                    content: 'func (s *SomeSuiteA) TestA(c *C) {}\nfunc (s *SomeSuiteB) TestB(c *quicktest.C) {}',
+                    imports: [
+                        { lineNumber: 0, moduleName: 'github.com/frankban/quicktest' },
+                        { lineNumber: 1, moduleName: 'gopkg.in/check.v1', alias: '.' }
+                    ],
+                    expected: [
+                        {
+                            kind: 'gocheck',
+                            functionName: 'TestA',
+                            argType: { moduleName: 'gopkg.in/check.v1', typeName: 'C' },
+                            receiverType: 'SomeSuiteA',
+                            lineNumber: 0,
+                            range: [0, 0, 0, 34],
+                        },
+                        {
+                            kind: 'quicktest',
+                            functionName: 'TestB',
+                            argType: { moduleName: 'github.com/frankban/quicktest', typeName: 'C' },
+                            receiverType: 'SomeSuiteB',
+                            lineNumber: 1,
+                            range: [1, 0, 1, 44],
+                        }
+                    ]
+                },
+                {
+                    name: 'should detect suite test function correctly if one module is dot imported (`quicktest`)',
+                    content: 'func (s *SomeSuiteA) TestA(c *C) {}\nfunc (s *SomeSuiteB) TestB(c *check.C) {}',
+                    imports: [
+                        { lineNumber: 0, moduleName: 'github.com/frankban/quicktest' , alias: '.'},
+                        { lineNumber: 1, moduleName: 'gopkg.in/check.v1' }
+                    ],
+                    expected: [
+                        {
+                            kind: 'quicktest',
+                            functionName: 'TestA',
+                            argType: { moduleName: 'github.com/frankban/quicktest', typeName: 'C' },
+                            receiverType: 'SomeSuiteA',
+                            lineNumber: 0,
+                            range: [0, 0, 0, 34],
+                        },
+                        {
+                            kind: 'gocheck',
+                            functionName: 'TestB',
+                            argType: { moduleName: 'gopkg.in/check.v1', typeName: 'C' },
+                            receiverType: 'SomeSuiteB',
+                            lineNumber: 1,
+                            range: [1, 0, 1, 40],
                         }
                     ]
                 },
