@@ -73,9 +73,11 @@ export type TelemetrySetup = {
  */
 export class TestProvider implements vscode.Disposable {
     private readonly _disposables: vscode.Disposable[] = [];
+    private readonly _watchers: vscode.FileSystemWatcher[] = [];
+
     private _goExtension: GoExtensionAPI | undefined;
 
-    private readonly _map = new WeakMap<vscode.TestItem, TestData>();
+    private _map = new WeakMap<vscode.TestItem, TestData>();
 
     private readonly _onCreateDebugAdapterTracker = new vscode.EventEmitter<OnCreateDebugAdapterTrackerEventArgs>();
 
@@ -140,6 +142,11 @@ export class TestProvider implements vscode.Disposable {
 
     dispose() {
         this._disposables.forEach(x => x.dispose());
+    }
+
+    private _clearWatchers() {
+        this._watchers.forEach(x => x.dispose());
+        this._watchers.splice(0);
     }
 
     private async _go() {
@@ -339,13 +346,15 @@ export class TestProvider implements vscode.Disposable {
 
     private async _discoverAllTests(token?: vscode.CancellationToken) {
         if (token?.isCancellationRequested) {
-            return [];
+            return;
         }
 
+        this._clearWatchers();
+        this._map = new WeakMap<vscode.TestItem, TestData>();
         this.controller.items.replace([]);
 
         if (!vscode.workspace.workspaceFolders) {
-            return []; // handle the case of no open folders
+            return; // handle the case of no open folders
         }
 
         const cancelPromise = token ? this._getCancellationTokenPromise(token) : undefined;
@@ -394,7 +403,8 @@ export class TestProvider implements vscode.Disposable {
             }
             return watcher;
         });
-        return await Promise.all(promises);
+        const freshWatchers = await Promise.all(promises);
+        this._watchers.push(...freshWatchers);
     }
 
     private _getCancellationTokenPromise(token: vscode.CancellationToken) {
