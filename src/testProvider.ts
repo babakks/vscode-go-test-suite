@@ -482,7 +482,16 @@ export class TestProvider implements vscode.Disposable {
             run.end();
         };
 
-        await discoverTests(request.include ?? gatherTestItems(this.controller.items));
+        // Note that, the way our Code Lenses invoke this function (through a
+        // VS Code command), causes to receive duplicate test items in the
+        // `request.include` array. The number equals to the nested-level of the
+        // test item in the test tree (which is currently 3; package, file, and
+        // suite). So, we have to deduplicate the `request.include` array.
+        const testItems = request.include
+            ? Array.from(new Set(request.include))
+            : gatherTestItems(this.controller.items);
+
+        await discoverTests(testItems);
         if (!queue.length) {
             vscode.window.showErrorMessage("No tests to run");
             run.end();
