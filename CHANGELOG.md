@@ -1,8 +1,12 @@
 # Change Log
 
+## [0.0.17]
+
+- Fix duplicate test runs when triggered by code lenses, on VS Code v1.97.0 ([#22](https://github.com/babakks/vscode-go-test-suite/issues/22) thanks to [kian99](https://github.com/kian99)).
+
 ## [0.0.16]
 
-- Support Golang dot imports ([#20](https://github.com/babakks/vscode-go-test-suite/issues/20) thanks to [tigarmo](https://github.com/tigarmo))
+- Support Golang dot imports ([#20](https://github.com/babakks/vscode-go-test-suite/issues/20) thanks to [tigarmo](https://github.com/tigarmo)).
 
 ## [0.0.14]
 
