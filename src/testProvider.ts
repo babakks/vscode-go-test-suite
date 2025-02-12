@@ -7,6 +7,7 @@ import { TextDecoder } from 'util';
 import * as vscode from 'vscode';
 import { ExtensionAPI as GoExtensionAPI } from './go';
 import { GoParser, type TestFunction, type TestSuite } from './goParser';
+import { Mutex } from './mutex';
 import { filterChildren, firstChild, traceChildren, tryReadFileSync } from './util';
 import assert = require('assert');
 import path = require('path');
@@ -72,6 +73,8 @@ export type TelemetrySetup = {
  *       - Function (e.g., `TestSomething`)
  */
 export class TestProvider implements vscode.Disposable {
+    private readonly _mutex = new Mutex();
+
     private readonly _disposables: vscode.Disposable[] = [];
     private readonly _watchers: vscode.FileSystemWatcher[] = [];
 
@@ -349,11 +352,14 @@ export class TestProvider implements vscode.Disposable {
             return;
         }
 
+        const unlock = await this._mutex.lock();
+
         this._clearWatchers();
         this._map = new WeakMap<vscode.TestItem, TestData>();
         this.controller.items.replace([]);
 
         if (!vscode.workspace.workspaceFolders) {
+            unlock();
             return; // handle the case of no open folders
         }
 
@@ -403,8 +409,18 @@ export class TestProvider implements vscode.Disposable {
             }
             return watcher;
         });
-        const freshWatchers = await Promise.all(promises);
-        this._watchers.push(...freshWatchers);
+
+        let freshWatchers: vscode.FileSystemWatcher[] | undefined;
+        try {
+            freshWatchers = await Promise.all(promises);
+        } catch (e){
+            throw e;
+        } finally {
+            if (freshWatchers) {
+                this._watchers.push(...freshWatchers);
+            }
+            unlock();
+        }
     }
 
     private _getCancellationTokenPromise(token: vscode.CancellationToken) {
